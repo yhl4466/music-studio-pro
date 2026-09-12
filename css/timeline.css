@@ -1,0 +1,165 @@
+/* [timeline.css] source: Pro.html lines 261-368, 565-620 (verbatim; responsive block must stay last) */
+/* ---------- 时间线 ---------- */
+.stageTop{display:flex;align-items:center;gap:10px;padding:10px 16px 8px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.stageTop .t1{font-size:12px;color:var(--mut);margin-right:auto;display:flex;gap:8px;align-items:center}
+.keyChip{font-size:11px;color:var(--acc);border:1px solid color-mix(in srgb,var(--acc) 40%, transparent);padding:3px 9px;border-radius:20px;
+  background:color-mix(in srgb,var(--acc) 8%, transparent)}
+.timeline{flex:1;overflow:auto;position:relative;background:
+  linear-gradient(180deg,color-mix(in srgb,var(--txt) 2%, transparent),transparent 40%),
+  repeating-linear-gradient(0deg,color-mix(in srgb,var(--txt) 2%, transparent) 0 1px,transparent 1px 3px);min-height:0}
+.tlInner{padding:8px 16px 12px;min-width:min-content}.emptyTip{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--dim);pointer-events:none;text-align:center}
+.emptyTip .big{font-size:52px;filter:drop-shadow(0 0 24px color-mix(in srgb,var(--acc) 35%, transparent))}
+.emptyTip b{color:var(--mut);font-size:15px}
+.hint{font-size:12px;color:var(--dim);line-height:1.9}
+
+/* ruler */
+/* ruler：吸顶，不随编辑区上下滚动；左侧空白格随左侧名称列一起冻结 */
+.ruler{display:grid;height:26px;border-radius:var(--r-xs);margin-bottom:2px;
+  position:sticky;top:0;z-index:6;background:var(--ctl-bg);
+  box-shadow:0 6px 10px -6px color-mix(in srgb,var(--bg0) 70%, transparent)}
+.ruler .rl{background:var(--ctl-bg2);color:var(--acc);font-size:11px;font-weight:700;font-family:var(--mono);
+  display:flex;align-items:center;justify-content:center;border-right:1px solid var(--line);
+  position:sticky;left:0;z-index:7;border-radius:var(--r-xs) 0 0 var(--r-xs)}
+.ruler .rs{background:transparent}
+.ruler .rs.bar{background:var(--ctl-bg);border-top:2px solid var(--acc3);border-right:1px solid var(--line);
+  color:color-mix(in srgb,var(--acc3) 70%, var(--txt));
+  font:600 9.5px var(--mono);display:flex;align-items:flex-start;justify-content:center;padding-top:1px}
+.ruler .rs.bar span{transform:translateX(calc(var(--cw)/-2 + 2px))}
+.ruler .rs.beat{background:color-mix(in srgb,var(--txt) 4%, transparent);border-right:1px solid var(--line);box-shadow:inset 0 -3px 0 color-mix(in srgb,var(--acc) 16%, transparent)}
+.ruler .rs.plain{background:transparent;border-right:1px solid var(--grid-line2)}
+/* 打点：bar 显示小节号 */
+
+/* 轨组：去掉 overflow:hidden，否则内部 sticky（左侧名称列/吸顶表头）会失效 */
+/* 顶亮底暗的渐隐描边（::before 画 1px 渐变边，避免 border 在圆角处过重） */
+.tgroup{display:flex;margin-bottom:8px;border-radius:var(--r);background:var(--card);
+  border:1px solid transparent;background-clip:padding-box;position:relative;box-shadow:var(--shadow-1),var(--glow)}
+.tgroup::before,.insBox::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;
+  background:linear-gradient(180deg,var(--edging),color-mix(in srgb,var(--line) 85%, transparent));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  mask-composite:exclude;pointer-events:none;z-index:1}
+.tgColor{width:4px;flex:none;border-radius:var(--r) 0 0 var(--r);position:sticky;left:0;z-index:5}
+.tgMain{flex:1;min-width:0;border-radius:0 var(--r) var(--r) 0}
+.thead{height:34px;display:flex;align-items:center;gap:8px;padding:0 8px 0 10px;cursor:pointer;user-select:none;
+  border-bottom:1px solid var(--line);border-radius:0 var(--r) 0 0;
+  background-color:var(--card);background-image:linear-gradient(180deg,color-mix(in srgb,var(--txt) 5%, transparent),transparent);
+  position:sticky;top:28px;z-index:4}
+.thead.sel{background-color:var(--sel-bg);background-image:linear-gradient(180deg,color-mix(in srgb,var(--acc) 12%, transparent),transparent)}
+/* 表头左侧信息（折叠键/图标/名称/角色/编号）：横向冻结，右侧控件仍随内容滚动 */
+.theadLeft{display:flex;align-items:center;gap:8px;position:sticky;left:0;z-index:2;
+  background-color:var(--card);box-shadow:var(--scroll-sh)}
+.thead.sel .theadLeft{background-color:var(--sel-bg)}
+.tgIcon{width:22px;height:22px;border-radius:var(--r-xs);display:flex;align-items:center;justify-content:center;font-size:11px;flex:none}
+.roleTag{font-size:10px;padding:2px 7px;border-radius:20px;flex:none;letter-spacing:.5px;border:1px solid}
+.tname{background:transparent;border:none;color:var(--txt);font-size:13px;font-weight:600;width:120px;padding:3px 5px;
+  border-radius:var(--r-xs);outline:none;transition:all .15s cubic-bezier(.4,0,.2,1)}
+.tname:hover{background:var(--hover)}
+.tname:focus{background:var(--well);box-shadow:0 0 0 1px var(--acc)}
+.hchip{height:23px;min-width:23px;padding:0 5px;font-size:10px;border-radius:var(--r-xs);border:1px solid var(--line2);background:var(--ctl-bg);
+  color:var(--mut);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:2px;flex:none;
+  transition:all .15s cubic-bezier(.4,0,.2,1)}
+.hchip:hover{border-color:var(--acc);color:var(--acc);transform:translateY(-1px)}
+.hchip:active{transform:translateY(0) scale(.98)}
+.hchip.on{background:var(--warn);color:var(--on-acc);border-color:var(--warn)}
+.hchip.solo.on{background:var(--good);color:var(--on-acc);border-color:var(--good)}
+.hchip:disabled{opacity:.35}
+.tgVol{width:64px}
+.tgShift{display:flex;gap:2px;align-items:center;flex:none}
+.tgShift .sc{height:21px;min-width:21px;padding:0 3px;font-size:10px}
+.tgShift .octv{font:600 10px var(--mono);color:var(--acc);min-width:24px;text-align:center}
+.tgFill{margin-left:auto;display:flex;align-items:center;gap:5px;flex:none}
+.collapse{transform:rotate(0);transition:.18s}
+.tgroup.closed .collapse{transform:rotate(-90deg)}
+.tgBody{padding:2px 0 6px}
+.tgroup.closed .tgBody{display:none}
+
+/* 行与格 */
+.row{display:grid;align-items:center}
+/* 左侧音符/鼓组名称列：横向冻结（不随音轨左右滚动），方便对照 */
+.lab{height:100%;display:flex;align-items:center;justify-content:flex-end;gap:3px;padding-right:8px;
+  font:600 9.5px var(--mono);color:var(--mut);white-space:nowrap;border-bottom:1px solid var(--grid-line);user-select:none;cursor:pointer;
+  position:sticky;left:4px;z-index:3;background:var(--card);box-shadow:var(--scroll-sh)}
+.lab:hover{color:var(--acc)}
+.lab.root{color:color-mix(in srgb,var(--acc) 72%, var(--txt))}
+.lab.off{color:var(--dim)}
+.lab .fl{color:var(--dim)}
+/* 网格格：底色一律由 --txt 与 --card 派生 → 浅色主题自动反转（不支持 color-mix 时用前面的硬编码回退） */
+.pc{height:100%;position:relative;border-right:1px solid var(--grid-line);border-bottom:1px solid var(--grid-line);cursor:crosshair;transition:background .05s}
+.mel .pc{background:rgba(255,255,255,.012);background:color-mix(in srgb,var(--txt) 3%, var(--card))}
+.mel .pc.beat{background:rgba(255,255,255,.03);background:color-mix(in srgb,var(--txt) 7%, var(--card))}
+.mel .pc.bar{background:rgba(255,255,255,.045);background:color-mix(in srgb,var(--txt) 11%, var(--card))}
+.drum .pc{background:rgba(255,255,255,.018);background:color-mix(in srgb,var(--txt) 4%, var(--card))}
+.drum .pc.beat{background:rgba(255,255,255,.045);background:color-mix(in srgb,var(--txt) 9%, var(--card))}
+.drum .pc.bar{background:rgba(255,255,255,.07);background:color-mix(in srgb,var(--txt) 14%, var(--card))}
+.pc:hover{box-shadow:inset 0 0 0 1px rgba(255,255,255,.22);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--txt) 30%, transparent)}
+.pc.on{background:var(--tc);background:color-mix(in srgb,var(--tc) 92%, var(--card));box-shadow:var(--cell-shadow)}
+/* 拍/小节线的底色规则权重更高（.mel .pc.beat = 3 类），这里补同权重的音符色，
+   否则拍线上的音符会被网格底色盖掉（主题派生色也一并生效） */
+.mel .pc.on,.drum .pc.on{background:var(--tc);background:color-mix(in srgb,var(--tc) 92%, var(--card))}
+.pc.on.velH{filter:brightness(1.25);
+  box-shadow:inset 0 0 8px color-mix(in srgb,var(--txt) 45%, transparent),inset 0 0 0 1px color-mix(in srgb,var(--txt) 40%, transparent)}
+.pc.on.playing{animation:blink .18s ease}
+@keyframes blink{0%{filter:brightness(1.9)}100%{filter:brightness(1.2)}}
+.pc.playCol{outline:1px solid color-mix(in srgb,var(--txt) 55%, transparent);outline-offset:-1px;z-index:2}
+.melRowH{height:16px}
+.melRows{padding:4px 0}
+.drumRowH{height:24px}
+
+/* 演奏中的小节光柱由 .playCol 控制 */
+
+/* ---- 窗口适配 / 响应式 ---- */
+.side.hidden{display:none}
+.topbar{flex-wrap:wrap;height:auto;min-height:52px;padding:6px 12px;row-gap:6px}
+.stageTop{flex-wrap:wrap}
+@media (max-width:1280px){
+  .brand b{display:none}
+  .knobGrp .rangeW{width:88px}
+}
+@media (max-width:1080px){
+  .side{width:300px}
+  .vizBox{display:none}
+  .metroBtn span,.loopSpan{display:none}
+}
+@media (max-width:860px){
+  .side{width:270px}
+  .acts{gap:5px}
+  .btn{padding:0 9px}
+  .seekLbl{min-width:78px;font-size:10px}
+  .pinfo{gap:8px;font-size:10px}
+}
+@media (max-width:720px){
+  .wrap{flex-direction:column}
+  .side{width:100%;height:46vh;border-left:none;border-top:1px solid var(--line)}
+  .sideBody{min-height:0}
+  .topbar .brand{min-width:0}
+  .pc{touch-action:none}
+  .side{margin-top:2px}
+  .seekBar{padding:6px 10px 4px;gap:8px}
+  .seekLbl{min-width:70px}
+  .tabs button{padding:7px 10px;font-size:12px}
+  .panel{padding:10px}
+  .miniSel{height:30px;font-size:13px}
+  .btn{min-height:34px;font-size:13px}
+  .acts{flex-wrap:wrap}
+  .stageRowLbl{min-width:38px}
+  .knobGrp{flex-wrap:wrap}
+  .keyBar{gap:4px}
+  .seqTabs{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .seqTabs::-webkit-scrollbar{display:none}
+  .pinfo{flex-wrap:wrap}
+  .helpLine{flex-wrap:wrap}
+  .aiChipRow{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .aiChipRow::-webkit-scrollbar{display:none}
+}
+@media (max-width:480px){
+  .wrap{padding:0}
+  .stageBody{margin:0 2px}
+  .labelCol{min-width:44px}
+  .pianoRow .key{min-width:16px}
+  .colHdr{font-size:9px}
+  .logo{display:none}
+  .badge{display:none}
+  .miniLbl{display:none}
+  .rangeW{flex:1;min-width:70px}
+  .side{height:50vh}
+}

@@ -1,0 +1,153 @@
+/* [theme.css] source: Pro.html lines 8-134, 540-564 (verbatim) */
+/* ============================================================
+   智能音乐工坊 PRO —— 深色录音棚设计系统
+   ============================================================ */
+/* 默认主题 studio（录音棚）——:root 即主题 studio */
+:root{
+  /* 基础色板 */
+  --bg0:#06080f; --bg1:#0b101d; --bg2:#101828; --panel:#0e1526;
+  --card:#121b30; --card2:#16203a; --line:#1d2a47; --line2:#2a3b63;
+  --txt:#e9eefb; --mut:#8fa1c6; --dim:#7a8cb4;
+  --acc:#00d9ff; --acc2:#7c6cff; --acc3:#ff7ac8; --good:#3dffa8; --warn:#ffc46b; --bad:#ff6b81;
+  --grad:linear-gradient(100deg,#7c6cff,#3aa0ff 45%,#22ffd6);
+  --grad2:linear-gradient(100deg,#ff6b81,#ff7ac8 45%,#7c6cff);
+  /* 表现层（以下变量各主题必须全覆盖） */
+  --shadow-1:0 6px 18px rgba(0,0,0,.25);      /* 卡片 */
+  --shadow-2:0 14px 44px rgba(0,0,0,.55);     /* 浮层 */
+  --shadow-3:0 26px 72px rgba(0,0,0,.66);     /* 弹窗 / toast */
+  --glass:rgba(16,24,40,.62); --glass-blur:12px;
+  --hover:rgba(255,255,255,.06);
+  --ring:#00d9ff;
+  --grid-line:#101b30; --grid-line2:#131d31;  /* 网格线（浅色主题需反转） */
+  --well:rgba(0,0,0,.25);                     /* 内凹底 */
+  --ctl-bg:#0d1526; --ctl-bg2:#18233c;        /* 控件实底 */
+  --sel-bg:#16233a;                           /* 选中行底色 */
+  --on-acc:#03121c;                           /* 强调色块上的文字（反色） */
+  --on-txt:#dff8ff;                           /* 选中态文字 */
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.28),inset 0 0 0 1px rgba(255,255,255,.18);
+  --edging:rgba(255,255,255,.14);             /* 卡片渐隐描边亮边 */
+  --scroll-sh:8px 0 10px -8px rgba(0,0,0,.7); /* 冻结列投影 */
+  --piano:rgba(10,15,26,.95); --piano2:rgba(7,10,18,.98);
+  --glow:0 0 0 0 rgba(0,0,0,0);               /* 卡片外发光（cyber 用） */
+  --note-ink:#0b1220;                         /* 音符格压深基准 */
+  --cw:24px; --labW:96px;
+  --r:12px; --r-sm:9px; --r-xs:6px; --mono:ui-monospace,'Cascadia Code',Consolas,monospace;
+  font-size:14px;
+}
+/* ---- 主题：午夜（更冷更深，对比更强） ---- */
+:root[data-theme="midnight"]{
+  --bg0:#03040a; --bg1:#060a14; --bg2:#0a1020; --panel:#080e1c;
+  --card:#0b1222; --card2:#0e1729; --line:#16203a; --line2:#22304f;
+  --txt:#f2f6ff; --mut:#93a4c8; --dim:#8496bd;
+  --acc:#35e0ff; --acc2:#6a5cff; --acc3:#ff6fd0; --good:#34ffb0; --warn:#ffc061; --bad:#ff5f7a;
+  --grad:linear-gradient(100deg,#7a6cff,#2b8cff 45%,#25f5d8);
+  --grad2:linear-gradient(100deg,#ff5f7a,#ff6fd0 45%,#6a5cff);
+  --shadow-1:0 6px 18px rgba(0,0,0,.45); --shadow-2:0 16px 48px rgba(0,0,0,.7); --shadow-3:0 28px 76px rgba(0,0,0,.8);
+  --glass:rgba(8,14,28,.7); --glass-blur:14px; --hover:rgba(255,255,255,.07); --ring:#35e0ff;
+  --grid-line:#0c1424; --grid-line2:#0f1a2c; --well:rgba(0,0,0,.4);
+  --ctl-bg:#070d1a; --ctl-bg2:#101a30; --sel-bg:#111d38;
+  --on-acc:#01050e; --on-txt:#e6f8ff;
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.2);
+  --edging:rgba(255,255,255,.16); --scroll-sh:8px 0 10px -8px rgba(0,0,0,.85);
+  --piano:rgba(6,10,20,.96); --piano2:rgba(3,5,12,.99); --glow:0 0 0 0 rgba(0,0,0,0); --note-ink:#060a14;
+  --r-sm:9px; --r-xs:6px;
+}
+/* ---- 主题：赛博（青绿 + 品红霓虹，边框发光） ---- */
+:root[data-theme="cyber"]{
+  --bg0:#03070a; --bg1:#05100f; --bg2:#071a1a; --panel:#061413;
+  --card:#0a1c1c; --card2:#0d2422; --line:#12463c; --line2:#1b6f58;
+  --txt:#e6fff8; --mut:#7fd8c4; --dim:#4a8f80;
+  --acc:#00ffc3; --acc2:#ff2fd0; --acc3:#c6ff3d; --good:#5cff9d; --warn:#ffd93d; --bad:#ff4d6d;
+  --grad:linear-gradient(100deg,#ff2fd0,#00ffc3 55%,#c6ff3d);
+  --grad2:linear-gradient(100deg,#c6ff3d,#00ffc3 45%,#ff2fd0);
+  --shadow-1:0 6px 18px rgba(0,0,0,.5); --shadow-2:0 14px 44px rgba(0,0,0,.7); --shadow-3:0 26px 72px rgba(0,0,0,.8);
+  --glass:rgba(5,18,17,.66); --glass-blur:14px; --hover:rgba(0,255,195,.09); --ring:#00ffc3;
+  --grid-line:#0b2a24; --grid-line2:#0e332a; --well:rgba(0,0,0,.45);
+  --ctl-bg:#04100f; --ctl-bg2:#0d2e28; --sel-bg:#0e352c;
+  --on-acc:#001410; --on-txt:#dffff6;
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.25);
+  --edging:rgba(0,255,195,.4); --scroll-sh:8px 0 10px -8px rgba(0,0,0,.85);
+  --piano:rgba(4,14,14,.96); --piano2:rgba(2,8,8,.99); --glow:0 0 14px rgba(0,255,195,.22); --note-ink:#04100f;
+  --r-sm:9px; --r-xs:6px;
+}
+/* ---- 主题：日出（暖橙 + 深棕） ---- */
+:root[data-theme="sunrise"]{
+  --bg0:#150c06; --bg1:#1f1208; --bg2:#2b1b0e; --panel:#1e1209;
+  --card:#2b1c11; --card2:#372516; --line:#4c3018; --line2:#6d4826;
+  --txt:#fff3e6; --mut:#dcb894; --dim:#a8825c;
+  --acc:#ff9a3c; --acc2:#ff6a3c; --acc3:#ffd27a; --good:#9fe870; --warn:#ffd166; --bad:#ff6b5e;
+  --grad:linear-gradient(100deg,#e8542b,#ff9a3c 50%,#ffd27a);
+  --grad2:linear-gradient(100deg,#ffd27a,#ff9a3c 45%,#e8542b);
+  --shadow-1:0 6px 18px rgba(0,0,0,.4); --shadow-2:0 14px 44px rgba(0,0,0,.62); --shadow-3:0 26px 72px rgba(0,0,0,.72);
+  --glass:rgba(38,24,13,.66); --glass-blur:12px; --hover:rgba(255,220,180,.09); --ring:#ffb066;
+  --grid-line:#2f1d10; --grid-line2:#3a2514; --well:rgba(0,0,0,.34);
+  --ctl-bg:#1a0f07; --ctl-bg2:#422a16; --sel-bg:#4a2f18;
+  --on-acc:#2a1004; --on-txt:#fff2e2;
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.2);
+  --edging:rgba(255,205,150,.22); --scroll-sh:8px 0 10px -8px rgba(0,0,0,.8);
+  --piano:rgba(28,17,9,.96); --piano2:rgba(18,11,6,.99); --glow:0 0 0 0 rgba(0,0,0,0); --note-ink:#1a0f07;
+  --r-sm:9px; --r-xs:6px;
+}
+/* ---- 主题：奶油（浅色：白 / 米底 + 深灰字） ---- */
+:root[data-theme="cream"]{
+  --bg0:#f7f3ea; --bg1:#f2ede1; --bg2:#e8e1d3; --panel:#fcfaf6;
+  --card:#ffffff; --card2:#f6f2ea; --line:#ddd5c6; --line2:#c3b8a4;
+  --txt:#2b2723; --mut:#5c5449; --dim:#6f6759;
+  --acc:#4a3fb0; --acc2:#0b6f8f; --acc3:#a8306f; --good:#1c7a4a; --warn:#8a5a00; --bad:#b3261e;
+  --grad:linear-gradient(100deg,#6a4ae0,#2f62cc 45%,#0a6f7c);
+  --grad2:linear-gradient(100deg,#b3261e,#a8306f 45%,#6a4ae0);
+  --shadow-1:0 2px 8px rgba(60,50,35,.12); --shadow-2:0 10px 30px rgba(50,42,30,.22); --shadow-3:0 22px 56px rgba(45,38,26,.32);
+  --glass:rgba(255,255,255,.88); --glass-blur:12px; --hover:rgba(43,39,35,.08); --ring:#4a3fb0;
+  --grid-line:#e4ddcf; --grid-line2:#d6ccb9; --well:rgba(60,50,35,.07);
+  --ctl-bg:#ffffff; --ctl-bg2:#efe9dc; --sel-bg:#e8ecfb;
+  --on-acc:#ffffff; --on-txt:#1b1636;
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.22),inset 0 0 0 1px rgba(255,255,255,.5);
+  --edging:rgba(60,50,35,.18); --scroll-sh:8px 0 10px -8px rgba(60,50,35,.22);
+  --piano:rgba(255,255,255,.97); --piano2:rgba(243,238,228,.99); --glow:0 0 0 0 rgba(0,0,0,0); --note-ink:#15111c;
+  --r-sm:9px; --r-xs:6px;
+}
+/* ---- 主题：森林（墨绿 + 苔藓绿，柔和） ---- */
+:root[data-theme="forest"]{
+  --bg0:#06120d; --bg1:#0a1a13; --bg2:#0e2419; --panel:#0b1a14;
+  --card:#10251b; --card2:#143021; --line:#1d3f2d; --line2:#2d5c43;
+  --txt:#e8f5ec; --mut:#9dc4ac; --dim:#6a9479;
+  --acc:#6fdc8c; --acc2:#34c7a0; --acc3:#ded06a; --good:#7ee08a; --warn:#e8c56a; --bad:#e8786b;
+  --grad:linear-gradient(100deg,#34c7a0,#6fdc8c 50%,#bfe26a);
+  --grad2:linear-gradient(100deg,#ded06a,#6fdc8c 45%,#34c7a0);
+  --shadow-1:0 6px 18px rgba(0,0,0,.3); --shadow-2:0 14px 44px rgba(0,0,0,.5); --shadow-3:0 26px 72px rgba(0,0,0,.6);
+  --glass:rgba(12,28,20,.62); --glass-blur:12px; --hover:rgba(200,255,220,.07); --ring:#6fdc8c;
+  --grid-line:#0f271c; --grid-line2:#132e21; --well:rgba(0,0,0,.28);
+  --ctl-bg:#091812; --ctl-bg2:#1a3625; --sel-bg:#1b3a28;
+  --on-acc:#04160d; --on-txt:#e6fff0;
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.3),inset 0 0 0 1px rgba(255,255,255,.18);
+  --edging:rgba(190,255,215,.16); --scroll-sh:8px 0 10px -8px rgba(0,0,0,.7);
+  --piano:rgba(9,22,16,.96); --piano2:rgba(5,14,10,.99); --glow:0 0 0 0 rgba(0,0,0,0); --note-ink:#08170f;
+  --r-sm:9px; --r-xs:6px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+/* ---------- cream（浅色）主题专项：网格反转 / 反色文字 / 阴影加深 ---------- */
+:root[data-theme="cream"] .toast,
+:root[data-theme="cream"] .menu{box-shadow:var(--shadow-3);border-color:var(--line2)}
+/* 网格线在米底上要看得见：加深一点，并给音符格压深以提高对比度 */
+:root[data-theme="cream"] .pc{border-right-color:var(--grid-line);border-bottom-color:var(--grid-line)}
+:root[data-theme="cream"] .pc.on{background:color-mix(in srgb,var(--tc) 36%, var(--note-ink));
+  box-shadow:inset 0 -2px 0 rgba(0,0,0,.28),inset 0 0 0 1px rgba(255,255,255,.32)}
+:root[data-theme="cream"] .pc.on.velH{filter:brightness(1.12);
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.75),inset 0 0 8px rgba(255,255,255,.45)}
+/* 浅色下描边与冻结列投影要更实，避免"糊" */
+:root[data-theme="cream"] .tgroup,
+:root[data-theme="cream"] .insBox{box-shadow:var(--shadow-1)}
+:root[data-theme="cream"] .thead,
+:root[data-theme="cream"] .theadLeft,
+:root[data-theme="cream"] .lab,
+:root[data-theme="cream"] .ruler{background-color:var(--card)}
+:root[data-theme="cream"] .lab,
+:root[data-theme="cream"] .theadLeft{box-shadow:var(--scroll-sh)}
+:root[data-theme="cream"] .tname{color:var(--txt)}
+:root[data-theme="cream"] .tname:focus{background:#fff}
+:root[data-theme="cream"] .btn.acc,
+:root[data-theme="cream"] .bigBtn,
+:root[data-theme="cream"] .playBtn{color:var(--on-acc)}
+:root[data-theme="cream"] .pianoBar{border-top-color:var(--line2)}
+:root[data-theme="cream"] .bkey{background:linear-gradient(180deg,#3a3550,#141020);color:#c9c2e0}
