@@ -1,5 +1,5 @@
 /* [project.js] source: Pro.html 2300-2349, 4723-4808（撤销栈 / 序列化 / 存档 / 导入导出 / 快照） */
-import { proj, setProj, newTrack, uid, ensurePatSizes, pruneTrackPrec, meterN, meterD } from '../core/state.js';
+import { proj, setProj, newTrack, uid, ensurePatSizes, pruneTrackPrec, meterN, meterD, SPB, MAX_BARS } from '../core/state.js';
 import { PREC_U_PER_STEP, ROLES, ENGINE_DEF } from '../core/theory.js';
 import { toast, downloadBlob, hooks } from '../core/util.js';
 import { LS_KEY } from '../core/storage.js';
@@ -83,6 +83,9 @@ export function applyProjectData(data){
   proj.spb=16; // 全局拍切分已取消：统一按“每拍 4 格”的十六分网格，spb 仅为惰性字段
   if(!proj.meterN||proj.meterN<1||proj.meterN>16)proj.meterN=4;
   if(!proj.meterD||[1,2,4,8,16].indexOf(proj.meterD)<0)proj.meterD=4;
+  // 超长档（旧版不存在，可能是手改 JSON / 异常分享链接）截断到曲长上限，避免渲染爆炸
+  const lim=MAX_BARS*Math.max(1,SPB());
+  if(proj.steps>lim)proj.steps=lim;
   proj.tracks=(data.tracks||[]).map(d=>{
     const role=ROLES[d.role]?d.role:'custom';
     const t=newTrack(d.kind||'mel',role,{name:d.name,color:d.color,engine:d.engine,shift:d.shift});

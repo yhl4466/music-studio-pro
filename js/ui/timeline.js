@@ -1,6 +1,6 @@
 /* [timeline.js] source: Pro.html 1679-2134, 2135-2142, 2148-2299, 2827-2912, 3230-3396, 3423-3428, 4721-4722
    （时间线渲染/缓存/画格/选区/节奏细分/量化/缩放；find 见 STEP 0 计划） */
-import { proj, uiZoom, setUiZoom, uiTab, selTrack, stepsPerQuarter, stepsPerBeat, meterN, meterD, SPB, beatSteps, stepWidth, effStepWidth, ensurePatSizes, pruneTrackPrec, patRows, allocPat, rowMidi, actx, A } from '../core/state.js';
+import { proj, uiZoom, setUiZoom, uiTab, selTrack, stepsPerQuarter, stepsPerBeat, meterN, meterD, SPB, beatSteps, stepWidth, effStepWidth, ensurePatSizes, pruneTrackPrec, patRows, allocPat, rowMidi, actx, A, MAX_BARS, ZOOM_MIN, CELL_MIN_PX, FIT_MIN_LONG } from '../core/state.js';
 import { KIT, MEL_ROWS, NOTE_NAMES, ROLES, noteNameOf, trackRows, octRowsOf, PREC_U_PER_STEP } from '../core/theory.js';
 import { $, $$, el, clamp, toast, debounce, UI, hooks } from '../core/util.js';
 import { KIT_COLORS, drumVoice } from '../audio/drum.js';
@@ -9,14 +9,216 @@ import { ensureAudio, setGate } from '../audio/master.js';
 import { Play, rebuildEvents } from '../audio/engine.js';
 import { beginEdit, commitEdit, markDirtyUI } from '../io/project.js';
 
+/* 把池内一个格子从步 so 挪到步 sn：同步 cols/cells 索引（O(1)，避免整体重建） */
+function reindexMove(c,ti,r,cell,so,sn){
+  const tm=c.cells&&c.cells[ti];
+  if(tm&&tm[r]){
+    if(so>=0&&so<tm[r].length&&tm[r][so]===cell)tm[r][so]=undefined;
+    if(sn>=0&&sn<tm[r].length)tm[r][sn]=cell;
+  }
+  const cols=c.cols&&c.cols[ti];
+  if(cols){
+    if(so>=0&&so<cols.length&&cols[so]){
+      const a=cols[so],k=a.indexOf(cell);
+      if(k>=0)a.splice(k,1);
+    }
+    if(sn>=0&&sn<cols.length)cols[sn].push(cell);
+  }
+}
+/* 窗口整体滑动 k 列：复用池内节点（k>0 右移、k<0 左移），只改动进出窗口的列 */
+function rotateWindow(k){
+  const c=proj._uiCache;if(!c||!c.win||!c.poolRows)return;
+  k=Math.trunc(k)||0;
+  const n=c.win.n,from=c.win.from;
+  if(!k||Math.abs(k)>=n){resetWindow(from+k,n);return}
+  const kk=Math.abs(k),right=k>0;
+  proj.tracks.forEach((t,ti)=>{
+    const rows=patRows(t);
+    const rowEls=c.poolRowEls[ti]||[];
+    for(let r=0;r<rows;r++){
+      const pool=c.poolRows[ti]&&c.poolRows[ti][r];
+      const row=rowEls[r];
+      if(!pool||!row)continue;
+      if(right){
+        const moved=pool.splice(0,kk);
+        for(const cell of moved)row.appendChild(cell); // 移到行尾（网格顺序=DOM 顺序）
+        pool.push.apply(pool,moved);
+        for(let i=0;i<moved.length;i++){
+          const so=from+i,sn=from+n+i;
+          reindexMove(c,ti,r,moved[i],so,sn);tagCell(moved[i],ti,r,sn);
+        }
+      }else{
+        const moved=pool.splice(n-kk,kk);
+        const anchor=pool[0]||null;
+        for(let i=0;i<moved.length;i++)row.insertBefore(moved[i],anchor);
+        pool.unshift.apply(pool,moved);
+        for(let i=0;i<moved.length;i++){
+          const so=from+n-kk+i,sn=from-kk+i;
+          reindexMove(c,ti,r,moved[i],so,sn);tagCell(moved[i],ti,r,sn);
+        }
+      }
+    }
+  });
+  const ruler=UI.ruler;
+  if(ruler&&c.rulerCells){
+    const pool=c.rulerCells;
+    if(right){
+      const moved=pool.splice(0,kk);
+      for(const cell of moved)ruler.appendChild(cell);
+      pool.push.apply(pool,moved);
+      for(let i=0;i<moved.length;i++)tagRulerCell(moved[i],from+n+i);
+    }else{
+      const moved=pool.splice(n-kk,kk);
+      const anchor=pool[0]||null;
+      for(let i=0;i<moved.length;i++)ruler.insertBefore(moved[i],anchor);
+      pool.unshift.apply(pool,moved);
+      for(let i=0;i<moved.length;i++)tagRulerCell(moved[i],from-kk+i);
+    }
+  }
+  c.win.from=from+k;
+  proj.tracks.forEach((t,ti)=>{
+    const rowEls=c.poolRowEls[ti]||[];
+    for(let r=0;r<rowEls.length;r++)if(rowEls[r])rowEls[r].style.gridTemplateColumns=rowTemplate(c.win);
+  });
+  if(ruler)ruler.style.gridTemplateColumns=rulerTemplate(c.win);
+}
+/* 大跨度跳转：不搬节点，只把池内每个格子重新贴到新窗口的步号上 */
+function resetWindow(from,n){
+  const c=proj._uiCache;if(!c||!c.poolRows)return;
+  proj.tracks.forEach((t,ti)=>{
+    const rows=patRows(t);
+    const rowEls=c.poolRowEls[ti]||[];
+    for(let r=0;r<rows;r++){
+      const pool=c.poolRows[ti]&&c.poolRows[ti][r];
+      const row=rowEls[r];
+      if(!pool||!row)continue;
+      for(let i=0;i<pool.length;i++)tagCell(pool[i],ti,r,from+i);
+      row.style.gridTemplateColumns=rowTemplate({from,n});
+    }
+  });
+  const ruler=UI.ruler;
+  if(ruler&&c.rulerCells){
+    for(let i=0;i<c.rulerCells.length;i++)tagRulerCell(c.rulerCells[i],from+i);
+    ruler.style.gridTemplateColumns=rulerTemplate({from,n});
+  }
+  setWindowIndex(c,from,n);
+}
+function tagRulerCell(cell,s){
+  cell.dataset.s=s;
+  cell.className='rs'+stepClass(s);
+  cell.innerHTML=s%SPB()===0?'<span>'+(s/SPB()+1)+'</span>':'';
+}
+export function syncWindowNow(force){
+  if(!VIRTUAL)return;
+  const c=proj._uiCache;
+  if(!c||!c.win||!c.win.n)return;
+  const cw=effStepWidth()||CELL_MIN_PX;
+  const n=poolCols();
+  if(c.win.n!==n||c.win.cw!==cw){structural(true);return} // 池尺寸/格子宽度变化 → 整体重建（含标尺）
+  const nf=windowFrom();
+  if(!force&&nf===c.win.from)return;
+  const d=nf-c.win.from;
+  if(Math.abs(d)<=Math.floor(n/2))rotateWindow(d); // 小跨度：搬节点复用池（只动进出窗口的列）
+  else resetWindow(nf,n);                          // 大跨度（拖滚动条/跳转）：池内原地重贴步号
+  c.win={from:nf,n:n,cw:cw};
+  try{paintRegionUI()}catch(e){}
+  // 格子状态已由 applyCell 整体重贴（className 重建会清掉旧 tribar），这里只需按 prec 重贴细分标记
+  try{markRhythmUI()}catch(e){}
+  try{hooks.seek?.updateSeekUI?.(Play.step)}catch(e){}
+}
+let _winRaf=0,_winBound=false;
+function bindWindowScroll(){
+  if(_winBound||!VIRTUAL)return;
+  const tl=tlEl();if(!tl)return;
+  _winBound=true;
+  const kick=force=>{
+    if(_winRaf)return;
+    _winRaf=requestAnimationFrame(()=>{_winRaf=0;syncWindowNow(!!force)}); // 一帧最多一次窗口同步
+  };
+  tl.addEventListener('scroll',()=>kick(false),{passive:true});
+  window.addEventListener('resize',()=>kick(true));
+}
+/* =========================================================================
+   长曲虚拟滚动（FEAT-3a）：只渲染视口窗口内的列
+   —— VIRTUAL=true ：.pc / .rs 按“窗口池”复用节点，长曲不再建十几万节点；
+                    滚动用 requestAnimationFrame 合并，一帧最多一次窗口同步；
+   —— VIRTUAL=false：回到旧的全量建格路径（一行常量即可回退）。
+   ========================================================================= */
+export const VIRTUAL=true;
+const WIN_BUF=32;   // 视口左右各预留的列数（避免快速滚动白屏）
+const WIN_SHIFT=16; // 每次窗口滑动的最小列数（块对齐，减少重排次数）
+function tlEl(){return document.getElementById('timeline')}
+function viewCols(){ // 一屏能看到的列数
+  const tl=tlEl();
+  const cw=effStepWidth()||CELL_MIN_PX;
+  const w=(tl&&tl.clientWidth)?tl.clientWidth:1200;
+  return Math.max(8,Math.ceil(w/cw)+2);
+}
+function poolCols(){return Math.max(1,Math.min(proj.steps,viewCols()+2*WIN_BUF))}
+function windowFrom(){ // 窗口起点（0 … steps-pool），带左侧缓冲；按 WIN_SHIFT 列对齐以减少重排
+  const tl=tlEl();
+  const cw=effStepWidth()||CELL_MIN_PX;
+  const sc=(tl&&tl.scrollLeft)?tl.scrollLeft:0;
+  const pool=poolCols();
+  let from=Math.floor(sc/cw)-WIN_BUF;
+  from=Math.floor(from/WIN_SHIFT)*WIN_SHIFT;
+  from=Math.max(0,Math.min(from,Math.max(0,proj.steps-pool)));
+  return from;
+}
+function rowTemplate(win){return 'var(--labW) '+(win.from*effStepWidth())+'px repeat('+win.n+', var(--cw))'}
+function rulerTemplate(win){return 'calc(var(--labW) + 5px) '+(win.from*effStepWidth())+'px repeat('+win.n+', var(--cw))'}
+function stepClass(s){return s%SPB()===0?' bar':(s%beatSteps()===0?' beat':'')}
+function glowStepNow(){ // 当前“已点亮”的播放列（未点亮返回 -1）
+  try{const g=hooks.seek?.glowCol?.();return (g==null?-1:g)}catch(e){return -1}
+}
+/* 一个格子的全部可视状态：底色（数据）＋ 选区 ＋ 播放列 ＋ 节奏细分标记 */
+function applyCell(cell,ti,r,s){
+  const t=proj.tracks[ti];if(!t||!cell)return;
+  const v=(t.pat[s]&&t.pat[s][r])||0;
+  cell.className='pc'+stepClass(s);
+  if(v>0)cell.classList.add('on');
+  if(v>=.85)cell.classList.add('velH');
+  cell.style.removeProperty('--tx');cell.style.removeProperty('--tw');
+  if(regionSel&&regionSel.ti===ti&&s>=regionSel.from&&s<=regionSel.to)cell.classList.add('sel');
+  if(glowStepNow()===s)cell.classList.add('playCol');
+}
+function tagCell(cell,ti,r,s){
+  cell.dataset.ti=ti;cell.dataset.r=r;cell.dataset.s=s;
+  applyCell(cell,ti,r,s);
+}
+/* 窗口池内的索引重建（cols / cells 只用窗口内的步，其它步保持空数组，旧读取方自动成为空操作） */
+function setWindowIndex(c,from,n){
+  const steps=proj.steps;
+  c.cols=proj.tracks.map(()=>Array.from({length:steps},()=>[]));
+  c.cells=[];
+  proj.tracks.forEach((t,ti)=>{
+    const rows=patRows(t);
+    const tm=Array.from({length:rows},()=>new Array(steps));
+    const pool=(c.poolRows&&c.poolRows[ti])||[];
+    for(let r=0;r<rows;r++){
+      const arr=pool[r];if(!arr)continue;
+      for(let i=0;i<arr.length;i++){
+        const s=from+i;if(s<0||s>=steps)continue;
+        tm[r][s]=arr[i];
+        c.cols[ti][s].push(arr[i]);
+      }
+    }
+    c.cells.push(tm);
+  });
+}
 export function zoomLabel(z){return Math.round(z*100)+'%'}
-export function setZoomUI(z){
-  setUiZoom(clamp(z,.4,8));
+/* 缩放按钮/标签的 UI 同步（不含重绘） */
+function syncZoomUI(){
   const v=document.getElementById('zoomV');
   if(v){v.textContent=zoomLabel(uiZoom);v.title='每个格子约 '+effStepWidth()+'px · Ctrl+滚轮/Ctrl± 快速缩放';}
   const o=document.getElementById('zoomOut'),i=document.getElementById('zoomIn');
-  if(o)o.disabled=uiZoom<=.4;
+  if(o)o.disabled=uiZoom<=ZOOM_MIN;
   if(i)i.disabled=uiZoom>=8;
+}
+export function setZoomUI(z,noRender){
+  setUiZoom(clamp(z,ZOOM_MIN,8));
+  syncZoomUI();
+  if(noRender)return; // 调用方自行统一重绘（避免长曲下重复 structural）
   structural(true);
   try{hooks.seek?.updateSeekUI?.(Play.step)}catch(e){}
 }
@@ -26,14 +228,33 @@ export function zoomAround(z){ // z: 目标倍率
   setZoomUI(z);
   if(tl&&keep)tl.scrollLeft=keep*effStepWidth();
 }
+/* 曲长变长后的“自动适配”：只缩小、不放大，保持用户手动放大过的视图
+   —— ≥64 小节起改为横向滚动 + 虚拟渲染，不再自动缩到“全屏可见”，只保证不低于 50% */
+export function autoFitZoom(){
+  const tl=document.getElementById('timeline');
+  if(!tl||!proj.steps)return;
+  const bars=proj.steps/Math.max(1,SPB());
+  if(bars>=64){
+    if(uiZoom<FIT_MIN_LONG)setZoomUI(FIT_MIN_LONG,true);
+    return;
+  }
+  const base=stepWidth();
+  const avail=Math.max(200,tl.clientWidth-40); // 与 zoomFitWindow 同一口径（去除左右留白）
+  const w=Math.max(CELL_MIN_PX,Math.floor(avail/proj.steps)); // 整曲可见所需每格像素
+  if(w>=base)return; // 本来就装得下 → 不动
+  setZoomUI(w/base,true); // 只改缩放值，由调用方 structural 统一重绘
+}
+/* ⤢适配：<64 小节缩到全屏可见；≥64 小节只保证不低于 50%（横向滚动查看） */
 export function zoomFitWindow(){
   const tl=document.getElementById('timeline');
   if(!tl||!proj.steps)return;
+  const bars=proj.steps/Math.max(1,SPB());
   const avail=Math.max(200,tl.clientWidth-40); // 除去左右留白/标签列后可用宽度
   const base=stepWidth()*proj.steps;
   let z=base>0?avail/base:1;
-  z=clamp(z,.4,8);
-  setZoomUI(Math.max(.4,z));
+  if(bars>=64)z=Math.max(z,FIT_MIN_LONG);
+  z=clamp(z,ZOOM_MIN,8);
+  setZoomUI(z);
 }
 /* 重新渲染整个时间线结构 */
 export function structural(full){
@@ -42,10 +263,14 @@ export function structural(full){
   const inner=$('#tlInner');
   inner.style.setProperty('--cw',cw+'px');
   inner.style.setProperty('--stepsN',S);
+  // 虚拟路径：显式撑出整曲滚动宽度（窗口池只有一屏多宽，不再靠内容撑宽）
+  if(VIRTUAL)inner.style.minWidth='calc(var(--labW) + '+(S*cw)+'px + 32px)';
+  else inner.style.removeProperty('min-width');
   // 行名（左侧 .lab）依赖：调性/调式/基音八度 + 每轨 shift/keyOct/行数；缓存 rev 只覆盖前者
   const labSig=proj.key+'|'+proj.mode+'|'+proj.keyOct+'|'+proj.tracks.map(t=>(t.shift||0)+','+(t.keyOct||0)+','+patRows(t)).join(';');
   if(full||!proj._uiCache||proj._uiCache.steps!==S||proj._uiCache.rev!==(proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct)){
     proj._uiCache={steps:S,rev:proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct,labSig};
+    proj._uiCache.win=VIRTUAL?{from:windowFrom(),n:poolCols(),cw:effStepWidth()}:null;
     renderRuler();
     renderTrackList();
     buildCaches();
@@ -57,6 +282,7 @@ export function structural(full){
     // 行名 DOM 刷新（原版漏调用 relabelRows：改调性/音区后左侧音名会留旧值）
     if(proj._uiCache.labSig!==labSig){ proj._uiCache.labSig=labSig; relabelRows(); }
   }
+  bindWindowScroll();
   try{hooks.seek?.updateSeekUI?.(Play.step)}catch(e){}
   try{paintRegionUI()}catch(e){} // 重建后恢复“选区”高亮
   try{refreshRhythmMarkers()}catch(e){} // 重建后同步节奏细分标记
@@ -67,19 +293,29 @@ export function refreshEmpty(){
 export function renderRuler(){
   const S=proj.steps;
   const r=UI.ruler;r.innerHTML='';
+  const win=VIRTUAL&&proj._uiCache?proj._uiCache.win:null;
+  const from=win?win.from:0, to=win?(win.from+win.n):S;
   // 轨道内容因组边框(1px)+左侧色条(4px)整体右移 5px，标尺补上同样的偏移保持列对齐
-  r.style.gridTemplateColumns='calc(var(--labW) + 5px) repeat(var(--stepsN), var(--cw))';
+  r.style.gridTemplateColumns=win?rulerTemplate(win):'calc(var(--labW) + 5px) repeat(var(--stepsN), var(--cw))';
   const sp=el('div','rl','');
   r.appendChild(sp);
-  for(let s=0;s<S;s++){
+  if(win)proj._uiCache.rulerCells=[];
+  for(let s=from;s<to;s++){
     const c=el('div', s%SPB()===0?'rs bar':(s%beatSteps()===0?'rs beat':'rs plain'));
     if(s%SPB()===0)c.innerHTML='<span>'+(s/SPB()+1)+'</span>';
+    if(win){c.dataset.s=s;proj._uiCache.rulerCells.push(c)}
     r.appendChild(c);
   }
 }
 export function renderTrackList(){
   const list=UI.trackList;list.innerHTML='';
-  proj.tracks.forEach((t,ti)=>{
+  proj.tracks.forEach((t,ti)=>buildTrackGroup(t,ti,list));
+}
+/* 单条音轨的整组 DOM（表头 + 各行格子）。抽成独立函数供同步/分块两条路径共用 */
+export function buildTrackGroup(t,ti,list){
+  {
+    const win=VIRTUAL&&proj._uiCache?proj._uiCache.win:null;
+    const from=win?win.from:0, to=win?(win.from+win.n):proj.steps;
     const grp=el('div','tgroup');grp.dataset.ti=ti;
     const col=el('div','tgColor');col.style.background=t.color;
     grp.appendChild(col);
@@ -144,7 +380,7 @@ export function renderTrackList(){
       const rows=patRows(t);
       for(let r=0;r<rows;r++){
         const row=el('div','row'+(t.kind==='mel'?' melRowH':' drumRowH'));
-        row.style.gridTemplateColumns='var(--labW) repeat(var(--stepsN), var(--cw))';
+        row.style.gridTemplateColumns=win?rowTemplate(win):'var(--labW) repeat(var(--stepsN), var(--cw))';
         row.style.setProperty('--tc',t.kind==='drum'?KIT_COLORS[r]:t.color);
         const lab=el('div','lab'+(t.kind==='mel'&&r%7===0?' root':''));
         if(t.kind==='drum'){
@@ -162,7 +398,7 @@ export function renderTrackList(){
           }
         });
         row.appendChild(lab);
-        for(let s=0;s<proj.steps;s++){
+        for(let s=from;s<to;s++){ // 虚拟路径只建窗口内的列（池），旧路径为全曲
           const c=el('div','pc'+(s%SPB()===0?' bar':(s%beatSteps()===0?' beat':'')));
           c.dataset.ti=ti;c.dataset.r=r;c.dataset.s=s;
           row.appendChild(c);
@@ -174,7 +410,7 @@ export function renderTrackList(){
     grp.appendChild(main);
     if(t.collapsed)grp.classList.add('closed');
     list.appendChild(grp);
-  });
+  }
 }
 export function changeShift(ti,delta){
   const t=proj.tracks[ti];
@@ -211,14 +447,16 @@ export function setTrackAnchor(oct){
 export function buildCaches(){
   const c=proj._uiCache;
   c.cols=proj.tracks.map(()=>Array.from({length:proj.steps},()=>[]));
-  c.cells=[];
+  c.cells=[];c.poolRows=[];c.poolRowEls=[];
   proj.tracks.forEach((t,ti)=>{
     const rows=patRows(t);
     const tm=Array.from({length:rows},()=>new Array(proj.steps));
     const group=$$('#trackList .tgroup')[ti]||null;
     const rowEls=group?Array.from(group.querySelectorAll('.row')):[];
+    c.poolRows[ti]=[];c.poolRowEls[ti]=rowEls;
     rowEls.forEach((row,rIdx)=>{
       const cells=Array.from(row.querySelectorAll('.pc'));
+      c.poolRows[ti][rIdx]=cells; // 池内槽位顺序（滑动/复用用）
       cells.forEach(cell=>{
         const s=parseInt(cell.dataset.s);
         tm[rIdx][s]=cell;
@@ -228,6 +466,12 @@ export function buildCaches(){
     c.cells.push(tm);
   });
   hooks.seek?.resetGlow?.(); // DOM 缓存重建（单元格全新）→ 强制下次 glowStepCells 重绘当前列
+}
+/* 当前渲染窗口 [from,to)：虚拟路径下只有这些步有格子；旧路径为全曲 */
+function winRange(){
+  const c=proj._uiCache;
+  const win=VIRTUAL&&c?c.win:null;
+  return win?[win.from,win.from+win.n]:[0,proj.steps];
 }
 export function paintOne(ti,r,s){
   const t=proj.tracks[ti];if(!t)return;
@@ -239,9 +483,10 @@ export function paintOne(ti,r,s){
   cell.classList.toggle('velH',v>=.85);
 }
 export function paintAll(){
+  const rng=winRange();
   proj.tracks.forEach((t,ti)=>{
     const rows=patRows(t);
-    for(let r=0;r<rows;r++)for(let s=0;s<proj.steps;s++)paintOne(ti,r,s);
+    for(let r=0;r<rows;r++)for(let s=rng[0];s<rng[1];s++)paintOne(ti,r,s);
   });
   try{refreshRhythmMarkers()}catch(e){} // 每次整画后同步节奏细分标记
 }
@@ -250,9 +495,10 @@ export function refreshRhythmMarkers(){
   try{
     if(proj._uiCache&&proj._uiCache.cols){
       const cols=proj._uiCache.cols;
+      const rng=winRange();
       for(let ti=0;ti<cols.length;ti++){
         const row=cols[ti];if(!row)continue;
-        for(let s=0;s<row.length;s++){
+        for(let s=rng[0];s<rng[1];s++){
           const arr=row[s];if(!arr)continue;
           arr.forEach(c=>{c.classList.remove('tribar');c.style.removeProperty('--tx');c.style.removeProperty('--tw')});
         }
@@ -437,7 +683,7 @@ export function pasteRegion(){
   const need=at+clip.len;
   if(need>proj.steps){
     const nb=Math.ceil(need/SPB());
-    if(nb>24){toast('粘贴后超过 24 小节上限，无法放入','err');return}
+    if(nb>MAX_BARS){toast('粘贴后超过 '+MAX_BARS+' 小节上限，无法放入','err');return}
     beginEdit();
     proj.steps=nb*SPB();ensurePatSizes();
   }else beginEdit();

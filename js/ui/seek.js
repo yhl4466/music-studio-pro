@@ -4,6 +4,7 @@ import { proj, actx, A, stepDurNow, fmtPos, stepWidth, effStepWidth, uiZoom } fr
 import { $, el, clamp, UI, hooks } from '../core/util.js';
 import { Play, stopPlay, tickSched, playheadHooks } from '../audio/engine.js';
 import { ensureAudio, setGate } from '../audio/master.js';
+import { VIRTUAL } from './timeline.js';
 
 export let followOn=true; // 播放时自动跟随滚动
 export function setFollowOn(v){followOn=v}
@@ -11,13 +12,28 @@ let lastFollowed=-1;
 export function followScroll(step){
   if(!followOn||step===lastFollowed)return;
   lastFollowed=step;
-  if(!proj._uiCache||!proj._uiCache.cols)return;
-  let cell=null;
-  for(let i=0;i<proj._uiCache.cols.length;i++){
-    const arr=proj._uiCache.cols[i][step];
-    if(arr&&arr.length){cell=arr[0];break;}
+  if(!VIRTUAL){ // 旧路径：格子全量存在，沿用 scrollIntoView
+    if(!proj._uiCache||!proj._uiCache.cols)return;
+    let cell=null;
+    for(let i=0;i<proj._uiCache.cols.length;i++){
+      const arr=proj._uiCache.cols[i][step];
+      if(arr&&arr.length){cell=arr[0];break;}
+    }
+    if(cell){try{cell.scrollIntoView({block:'nearest',inline:'nearest',behavior:'auto'})}catch(e){}}
+    return;
   }
-  if(cell){try{cell.scrollIntoView({block:'nearest',inline:'nearest',behavior:'auto'})}catch(e){}}
+  // 虚拟渲染：格子只在窗口内存在 → 直接按步号算目标滚动位置，
+  // 滚动事件由 timeline.js 用 requestAnimationFrame 合并后同步窗口列。
+  const tl=document.getElementById('timeline');
+  if(!tl)return;
+  const cw=effStepWidth()||8;
+  const labW=parseFloat(getComputedStyle(tl).getPropertyValue('--labW'))||96;
+  const x=labW+step*cw;
+  const left=tl.scrollLeft||0, w=tl.clientWidth||0;
+  if(x<left+labW+40||x>left+w-80){
+    const max=Math.max(0,proj.steps*cw+labW-w);
+    tl.scrollLeft=Math.max(0,Math.min(max,x-w*0.35));
+  }
 }
 export function setPlayUI(on){
   $('#playIco').style.display=on?'none':'block';
@@ -152,5 +168,7 @@ export function bindScrubber(){
 
 /* 自注册（STEP 6c 收敛）：timeline.js 经 hooks.seek 反向调用；engine.js 经 playheadHooks 反向调用 */
 export function resetGlow(){ lastGlowStep=-1; }
-hooks.seek={updateSeekUI,resetGlow};
+/* 当前已点亮的播放列（虚拟窗口重排后据此恢复 playCol 高亮；未点亮返回 -1） */
+export function glowCol(){ return lastGlowStep; }
+hooks.seek={updateSeekUI,resetGlow,glowCol};
 Object.assign(playheadHooks,{setPlayUI,clearStepGlow,updatePos,glowStepCells,followScroll,visLoop});

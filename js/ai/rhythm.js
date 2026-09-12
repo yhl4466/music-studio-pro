@@ -2,7 +2,7 @@
 import { proj, patRows } from '../core/state.js';
 import { clamp } from '../core/util.js';
 import { KIT } from '../core/theory.js';
-import { barDyn } from './styles.js';
+import { planFromSections } from './styles.js';
 
 /* ---------- 鼓组（按段落变化密度与加花） ---------- */
 export function fillDrums(t,rng,style,chords,secs,E,C){
@@ -10,11 +10,13 @@ export function fillDrums(t,rng,style,chords,secs,E,C){
   for(let s=0;s<S;s++)for(let r=0;r<rows;r++)t.pat[s][r]=0;
   const K=0,SN=1,CL=2,HC=3,HO=4,TM=5,RM=6,CR=7;
   const B=secs.length,tpl=style.drumTpl;
+  const F=planFromSections(secs,E,C); // 分层生成：每小节密度/力度由曲式规划给出
   const four=(tpl==='fourfloor'||tpl==='cinema');
   const soft=(tpl==='soft');
   for(let b=0;b<B;b++){
     const raw=secs[b]; const sec=raw==='all'?'build':raw;
-    const D=barDyn(sec,E,C),bs=b*16,lastB=(b===B-1);
+    const M=F.bars[b]||{},D={e:M.density==null?.62:M.density,v:M.vel==null?.7:M.vel};
+    const bs=b*16,lastB=(b===B-1);
     const leadOut=(sec!=='outro'&&secs[Math.min(B-1,b+1)]==='outro');
     for(let i=0;i<16;i++){
       const s=bs+i,inBar=i;
@@ -30,8 +32,9 @@ export function fillDrums(t,rng,style,chords,secs,E,C){
         kick=(inBar%4===0)||(four&&inBar%4===2&&rng.chance(.2));
         sn=(inBar%8===4)&&rng.chance(.95);
       }else{ // climax / all
-        kick=four?inBar%4===0:(inBar===0||inBar===8||(inBar%4===2&&rng.chance(.55)));
+        kick=four?inBar%4===0:(inBar===0||inBar===8||(inBar%4===2&&rng.chance(.35+.4*D.e)));
         sn=inBar%8===4;
+        if(!four&&D.e>.8&&(inBar===6||inBar===14)&&rng.chance(.35+.4*D.e))kick=true; // 高潮：额外底鼓推进
       }
       if(soft&&sec!=='climax'){kick=inBar===0||(inBar===8&&rng.chance(.8));sn=(inBar%8===4)&&rng.chance(.8)}
       const vel=D.v*(sec==='intro'?.66:(sec==='outro'?.72:1)); // 引子/尾声整体更轻但可闻
@@ -50,12 +53,14 @@ export function fillDrums(t,rng,style,chords,secs,E,C){
           if(inBar===4||inBar===12){t.pat[s][RM]=clamp(.55*vel,.08,1);t.pat[s][SN]=0}
         }
       }else{
-        const hGap=(sec==='climax'?1:2);
-        if(inBar%hGap===0&&!t.pat[s][K]&&!t.pat[s][SN]&&!t.pat[s][CL]&&rng.chance(.92)){
+        const hGap=(D.e>=.9?1:2); // 密度高的段落踩镲加密（高潮 16 分、发展 8 分）
+        const hProb=clamp(.55+.4*D.e,.5,.95);
+        if(inBar%hGap===0&&!t.pat[s][K]&&!t.pat[s][SN]&&!t.pat[s][CL]&&rng.chance(hProb)){
           t.pat[s][HC]=clamp((inBar%4===0?.58:.42)*vel,.08,1);
         }
-        if(sec==='climax'&&inBar%2===1&&rng.chance(.4))t.pat[s][HC]=.3;
-        if((sec==='build'||sec==='climax')&&inBar%8===6&&rng.chance(.6*D.e))t.pat[s][HO]=.48;
+        if(D.e>=.9&&inBar%2===1&&rng.chance(.3+.45*D.e))t.pat[s][HC]=clamp(.3*vel,.06,1);
+        if(D.e>=.9&&inBar%4===2&&rng.chance(.25+.4*D.e))t.pat[s][HO]=clamp(.42*vel,.06,1);
+        if((sec==='build'||sec==='climax')&&inBar%8===6&&rng.chance(.6*D.e))t.pat[s][HO]=clamp(.48*vel,.06,1);
       }
       // 段首镲、句尾过门、曲尾收束镲（轻柔）
       if(inBar===0&&(b===0||(sec==='climax'&&(b===0||secs[b-1]!=='climax'))||leadOut||(lastB&&sec==='outro')))
@@ -74,9 +79,11 @@ export function fillBass(t,rng,chords,secs,style,E,C){
   const S=proj.steps;const B=secs.length;
   for(let s=0;s<S;s++)for(let r=0;r<patRows(t);r++)t.pat[s][r]=0;
   const tpl=style.bassTpl;
+  const F=planFromSections(secs,E,C); // 分层生成：段落密度/力度
   for(let b=0;b<B;b++){
     const raw=secs[b],sec=raw==='all'?'build':raw;
-    const D=barDyn(sec,E,C),ch=chords[b],rr=ch.root,bs=b*16;
+    const M=F.bars[b]||{},D={e:M.density==null?.62:M.density,v:M.vel==null?.7:M.vel};
+    const ch=chords[b],rr=ch.root,bs=b*16;
     if(sec==='intro'){
       // 引子贝斯：根音在 1、3 拍（第 3 拍弱），偶尔五度/附点，托起音乐的"骨架"
       const hits=[[0,.9],[8,.55]];
@@ -116,6 +123,14 @@ export function fillBass(t,rng,chords,secs,style,E,C){
         let row=octJump?Math.min(13,rr+7):rr;
         if(!clim&&rng.chance(.25)&&rr+4<=13)row=rr+4;
         t.pat[s][row]=clamp((i%2===0?.9:.62)*D.v,.1,1);
+      }
+    }
+    // 高潮加厚：八分之间补十六分推进音（发展段不做，保证高潮明显更密）
+    if(clim&&D.e>.8){
+      for(let i=1;i<8;i+=2){
+        const s=bs+i*2-1;
+        if(s<bs||s>=bs+16)continue;
+        if(rng.chance(.28+.35*D.e))t.pat[s][rr]=clamp(.5*D.v,.1,1);
       }
     }
   }

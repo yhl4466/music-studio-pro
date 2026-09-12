@@ -2,7 +2,7 @@
 import { proj, patRows } from '../core/state.js';
 import { clamp, pick } from '../core/util.js';
 import { degSemi } from '../core/theory.js';
-import { barDyn } from './styles.js';
+import { planFromSections } from './styles.js';
 
 export function chordRowsOf(mode,rootDeg,with7){
   const t=[rootDeg,rootDeg+2,rootDeg+4];
@@ -79,20 +79,21 @@ export function planChords(rng,secs,style,E,C){
 export function fillArp(t,rng,chords,secs,style,E,C){
   const S=proj.steps,B=secs.length;
   for(let s=0;s<S;s++)for(let r=0;r<patRows(t);r++)t.pat[s][r]=0;
+  const F=planFromSections(secs,E,C);
   for(let b=0;b<B;b++){
     const raw=secs[b],sec=raw==='all'?'build':raw;
     if(sec==='intro'||sec==='outro')continue;
-    const D=barDyn(sec,E,C);
+    const M=F.bars[b]||{},D={e:M.density==null?.62:M.density,v:M.vel==null?.7:M.vel};
     const ch=chords[b];
     let rows=ch.rows.map(x=>x>=7?x:x+7).filter(x=>x<=14);
     if(!rows.length)rows=ch.rows;
     const seq=rows.length?rows:ch.rows;
     const dir=rng.chance(.5)?1:-1;
-    // 基础走八分音符；高潮偶尔 16 分点缀（跳过部分反拍留白），避免与旋律打架
-    const gap=(sec==='climax'&&E>.6)?1:2;
+    // 基础走八分音符；高潮（密度 ≥.9）偶尔 16 分点缀（跳过部分反拍留白），避免与旋律打架
+    const gap=(D.e>=.9&&E>.5)?1:2;
     let idx=dir>0?0:seq.length-1;
     for(let s=bsOf(b);s<bsOf(b)+16;s+=gap){
-      if(s%2===1&&rng.chance(sec==='climax'?.4:.55))continue; // 反拍留白
+      if(s%2===1&&rng.chance(D.e>=.9?.4:.55))continue; // 反拍留白
       t.pat[s][seq[idx]]=clamp((s%8===0?.88:(s%4===0?.7:.55))*D.v*.85,.06,1);
       idx+=dir;
       if(idx<0)idx=seq.length-1;
@@ -105,23 +106,27 @@ export function bsOf(b){return b*16}
 export function fillHarmony(t,rng,chords,secs,padMode,C,E){
   const S=proj.steps,B=secs.length;
   for(let s=0;s<S;s++)for(let r=0;r<patRows(t);r++)t.pat[s][r]=0;
+  const F=planFromSections(secs,E,C);
   for(let b=0;b<B;b++){
     const raw=secs[b],sec=raw==='all'?'build':raw;
-    const D=barDyn(sec,E,C);
+    const M=F.bars[b]||{},D={e:M.density==null?.62:M.density,v:M.vel==null?.7:M.vel};
     const ch=chords[b];
     let rows=ch.rows.slice();
     if(padMode)rows=ch.rows.map(x=>x>=7?x:x+7).filter(x=>x<=14);
     if(!rows.length)rows=ch.rows;
     if(padMode){
       // 整小节长音（播放端自动合并），音量随段落起伏且整体压得很低（柔和垫底）
+      // 高潮才铺满（含七度色彩），引子/发展收成三音和弦 → 高潮在和声厚度上也明显更"放"
+      if(sec!=='climax'&&rows.length>3)rows=rows.slice(0,3);
       // 统一 Math.max 叠加写入：即使与同轨其它生成内容重叠也不互相覆盖
-      const vel=clamp((sec==='intro'?.46:sec==='climax'?.55:sec==='outro'?.4:.48)*D.v*.8,.05,.85);
+      const vel=clamp((sec==='intro'?.5:sec==='climax'?.6:sec==='outro'?.42:.5)*D.v*.8,.06,.85);
       for(let s=0;s<16;s++)rows.forEach(rw=>{const cell=bsOf(b)+s;t.pat[cell][rw]=Math.max(t.pat[cell][rw]||0,vel)});
     }else{
       if(sec==='intro'||sec==='outro')continue; // 柱式只在发展/高潮响
-      // 断奏柱式：每小节两次短促和弦（每次 2 步），轻盈不拖
-      const vel=clamp((sec==='climax'?.5:.36)*D.v,.05,.8);
-      [0,8].forEach(hit=>{
+      // 断奏柱式：发展每小节两次；高潮三次（密度/力度更高）
+      const vel=clamp((sec==='climax'?.56:.36)*D.v,.05,.8);
+      const hits=sec==='climax'?[0,8,12]:[0,8];
+      hits.forEach(hit=>{
         for(let d=0;d<2&&hit+d<16;d++)rows.forEach(rw=>{const cell=bsOf(b)+hit+d;t.pat[cell][rw]=Math.max(t.pat[cell][rw]||0,vel)});
       });
     }

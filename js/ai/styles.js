@@ -60,3 +60,81 @@ export function barDyn(sec,E,C){
   const v=clamp((vm[sec]||1)*clamp(0.72+0.45*E,.5,1.3),0.25,1.4);
   return {e,v};
 }
+
+/* =========================================================================
+   8c. 分层生成 · 第一层：整曲曲式规划（段落结构 + 密度/力度/动机标记）
+   段落基准：density 0-1 = 乐器密度，vel 0.3-1.0 = 力度系数
+   slot：动机槽位（引子/尾声 0 = 主题，发展 1 = 变形，高潮 2 = 高八度变奏），供动机发展使用
+   ========================================================================= */
+export const SEC_BASE={
+  intro:{d:.34,v:.46,newMotif:true,slot:0},
+  build:{d:.62,v:.70,newMotif:false,slot:1},
+  climax:{d:.98,v:.95,newMotif:true,slot:2},
+  outro:{d:.28,v:.40,newMotif:false,slot:0},
+  all:{d:.62,v:.70,newMotif:true,slot:0},
+};
+/* 段落基准经 energy / complexity 轻微调制；保证高潮的密度与力度明显高于发展 */
+export function secMeta(sec,E,C){
+  const b=SEC_BASE[sec]||SEC_BASE.all;
+  const d=clamp(b.d*(0.78+0.42*E)*(0.92+0.16*C),.05,1);
+  const v=clamp(b.v*(0.8+0.3*E),.3,1);
+  return {density:+d.toFixed(3),vel:+v.toFixed(3),newMotif:b.newMotif,slot:b.slot};
+}
+/* 把段落标签数组展开为「每小节元数据 + 段落汇总」（fill* 统一从这里取密度/力度） */
+export function buildForm(secs,E,C){
+  E=(E==null?AI.energy:E);C=(C==null?AI.complex:C);
+  const bars=[],sections=[],B=secs.length;
+  let i=0;
+  while(i<B){
+    const sec=secs[i];let j=i;while(j<B&&secs[j]===sec)j++;
+    const m=secMeta(sec,E,C);
+    sections.push({sec,from:i,to:j,bars:j-i,density:m.density,vel:m.vel,newMotif:m.newMotif,slot:m.slot});
+    for(let b=i;b<j;b++)bars.push({
+      sec,density:m.density,vel:m.vel,slot:m.slot,
+      blockIdx:Math.floor(b/4),barInSec:b-i,sectionBars:j-i,sectionFrom:i,sectionTo:j,
+      isSectionStart:b===i,isSectionEnd:b===j-1,isBlockStart:b%4===0,
+      newMotif:m.newMotif&&b===i,
+    });
+    i=j;
+  }
+  return {secs:secs.slice(),bars,sections,B};
+}
+/* 用已有段落标签数组直接取元数据（fill* 内部调用，无需改函数签名）
+   —— 同一次生成里 5 条轨会各自调用，这里做一次记忆化，避免重复展开 */
+let _formCache={key:'',val:null};
+export function planFromSections(secs,E,C){
+  E=(E==null?AI.energy:E);C=(C==null?AI.complex:C);
+  const key=secs.join(',')+'|'+E+'|'+C;
+  if(_formCache.key===key)return _formCache.val;
+  const val=buildForm(secs,E,C);
+  _formCache={key,val};
+  return val;
+}
+/* 分层生成第一层：按总小节数规划整曲曲式
+   —— 引子固定 2~6 小节封顶（不再按总长百分比无限放大，长曲开头不再长时间空白）
+   —— 尾声 2~8 小节；其余核心部分按 45/55 分给「发展 / 高潮」 */
+export function planFullForm(totalBars,E,C){
+  const B=Math.max(1,Math.round(totalBars||1));
+  const mk=(i,b,c,o)=>{
+    const a=[];
+    for(let k=0;k<i;k++)a.push('intro');
+    for(let k=0;k<b;k++)a.push('build');
+    for(let k=0;k<c;k++)a.push('climax');
+    for(let k=0;k<o;k++)a.push('outro');
+    while(a.length<B)a.push('build');
+    return a.slice(0,B);
+  };
+  if(B<=2)return buildForm(Array.from({length:B},()=>'all'),E,C);
+  if(B===3)return buildForm(mk(1,0,1,1),E,C);
+  if(B===4)return buildForm(mk(1,1,1,1),E,C);
+  let intro=clamp(Math.round(B*.13),2,6);
+  let outro=clamp(Math.round(B*.18),2,8);
+  if(B-intro-outro<2){ // 极小曲长（5~8 小节）：引子/尾声各让一步，保住发展+高潮
+    intro=Math.max(1,Math.min(intro,Math.floor((B-2)/2)));
+    outro=Math.max(1,Math.min(outro,B-intro-1));
+  }
+  const core=Math.max(1,B-intro-outro);
+  const build=Math.max(1,Math.round(core*.45));
+  const climax=Math.max(1,core-build);
+  return buildForm(mk(intro,build,climax,outro),E,C);
+}

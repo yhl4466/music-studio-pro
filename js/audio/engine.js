@@ -3,7 +3,7 @@ import { proj, actx, A, stepDurNow, SPB, beatSteps, patRows, rowMidi } from '../
 import { clamp, UI } from '../core/util.js';
 import { KIT, PREC_U_PER_STEP, trackRows, freqOf } from '../core/theory.js';
 import { ensureAudio, setGate } from './master.js';
-import { synthVoice } from './synth.js';
+import { synthVoice, reserveVoices } from './synth.js';
 import { drumVoice, metronomeClick } from './drum.js';
 
 /* 播放头 UI 晚绑定：ui/seek.js 尚未抽取，暂由 index.html 在 UI 函数下方注入（STEP 6c 迁移） */
@@ -49,11 +49,27 @@ export function fireStep(step,time,ctx,dest,straightTime){
   const edOf=t=>(t.env&&t.env.d!=null)?t.env.d:.1;
   const esOf=t=>(t.env&&t.env.s!=null)?t.env.s:.7;
   const erOf=t=>(t.env&&t.env.r!=null)?t.env.r:.2;
+  // 本步所有旋律轨的并发起音，一次性整组预留声部：
+  // 同一时刻的和弦/垫音要么一起出声、要么一起被限流，不会出现“半截和弦”，
+  // 也不会出现后一轨的预留把前一轨刚排上的音抢掉。
+  let stepNeed=0;
+  proj.tracks.forEach((t,ti)=>{
+    if(t.mute)return; if(solo&&!t.solo)return; if(t.kind==='drum')return;
+    const evs=proj._ev[ti][step];
+    if(evs&&evs.length)stepNeed+=evs.length;
+    if(t.prec&&t.prec.length){
+      const rows=patRows(t);
+      for(const p of t.prec)if(p.row!=null&&p.row>=0&&p.row<rows&&Math.floor(p.u/PREC_U_PER_STEP)===step)stepNeed++;
+    }
+  });
+  const stepGrp=(ctx&&ctx._act)?('s'+step+'@'+(Math.round((time||0)*1000))):null;
+  if(stepNeed)reserveVoices(ctx,stepNeed,stepGrp);
   proj.tracks.forEach((t,ti)=>{
     if(t.mute)return; if(solo&&!t.solo)return;
     const base={vol:t.vol,pan:t.pan,rev:t.reverb,dly:t.delay,bus:t.id};
     const evs=proj._ev[ti][step];
-    if(evs&&evs.length){for(const e of evs){
+    if(evs&&evs.length){
+      for(const e of evs){
       if(t.kind==='drum'){
         const k=KIT[e.kit];
         const vel=clamp(e.vel*(0.92+Math.random()*.16),.08,1);
@@ -66,6 +82,7 @@ export function fireStep(step,time,ctx,dest,straightTime){
           engine:t.engine,osc:t.osc,cut:t.cut,res:t.res,
           env:{a:eb*(0.75+Math.random()*.5),d:ed*(0.8+Math.random()*.4),s:es,r:er},
           detune:t.detune,nOsc:t.nOsc,
+          grp:stepGrp,
           ...base
         });
       }
@@ -90,6 +107,7 @@ export function fireStep(step,time,ctx,dest,straightTime){
             engine:t.engine,osc:t.osc,cut:t.cut,res:t.res,
             env:{a:eb*(0.75+Math.random()*.5),d:ed*(0.8+Math.random()*.4),s:es,r:er},
             detune:t.detune,nOsc:t.nOsc,
+            grp:stepGrp,
             ...base
           });
         }

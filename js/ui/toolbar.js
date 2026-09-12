@@ -1,6 +1,6 @@
 /* [toolbar.js] source: Pro.html 870-921, 3002-3229, 4593-4607, 4881-4950, 4952-5002
    （顶栏控件/菜单/音轨按钮/拍号/帮助/快捷键；最上层 UI 模块，可 import 其余 ui 模块） */
-import { proj, setProj, actx, A, uiZoom, setUiZoom, uiTab, setUiTab, selTrack, stepsPerQuarter, stepsPerBeat, meterN, meterD, meterLabel, SPB, beatSteps, barSeconds, isStraightFourFour, aiMeterOK, fmtPos, stepDurNow, stepWidth, effStepWidth, ensurePatSizes, pruneTrackPrec, patRows, allocPat, rowMidi, newTrack, uid, blankProject, applyTrackPatSize, demoProject } from '../core/state.js';
+import { proj, setProj, actx, A, uiZoom, setUiZoom, uiTab, setUiTab, selTrack, stepsPerQuarter, stepsPerBeat, meterN, meterD, meterLabel, SPB, beatSteps, barSeconds, isStraightFourFour, aiMeterOK, fmtPos, stepDurNow, stepWidth, effStepWidth, ensurePatSizes, pruneTrackPrec, patRows, allocPat, rowMidi, newTrack, uid, blankProject, applyTrackPatSize, demoProject, MAX_BARS, ZOOM_MIN } from '../core/state.js';
 import { PREC_U_PER_STEP, KIT, ROLES, ENGINE_NAMES, ENGINE_DEF, ROLE_VOL, KEY_NAMES, SCALES, SCALE_NAMES, MEL_ROWS, noteNameOf, keyBaseMidi, midiOfRow, octRowsOf, trackRows } from '../core/theory.js';
 import { $, $$, el, clamp, ri, rf, pick, chance, lerp, pad2, debounce, makeRng, toast, UI, downloadBlob, exportProgressElEnsure, exportProgressStart, exportProgressSet, exportProgressStop, hooks } from '../core/util.js';
 import { LS_KEY, LIB_KEY, libRead, libWrite, libMeta } from '../core/storage.js';
@@ -15,7 +15,7 @@ import { serializeProject, applyProjectData, autosaveNow, loadAutosave, quickSav
 import { shareLink, loadShareFromHash } from '../io/share.js';
 import { exportMidiUI, importMidiUI } from '../io/midi.js';
 import { exportWavUI } from '../io/wav.js';
-import { structural, paintAll, relabelRows, zoomAround, zoomFitWindow, setDrawTool, drawTool, clearRegionUI, copyRegion, pasteRegion, updClipUI, updateRhythmUI, applyQuantize, updateQuantEst, convertRegionRhythm, cellPaintStart, cellPaintMove, cellPaintEnd, previewDrum, regionSel } from './timeline.js';
+import { structural, paintAll, relabelRows, zoomAround, zoomFitWindow, autoFitZoom, setDrawTool, drawTool, clearRegionUI, copyRegion, pasteRegion, updClipUI, updateRhythmUI, applyQuantize, updateQuantEst, convertRegionRhythm, cellPaintStart, cellPaintMove, cellPaintEnd, previewDrum, regionSel } from './timeline.js';
 import { setTab, renderInspector, randomizePatch } from './sidebar.js';
 import { updateSeekUI, seekToStep, bindScrubber, followOn, setFollowOn } from './seek.js';
 import { renderPiano, sizePianoKeys, alignPianoToTrack, pianoOctMove, onKey, onKeyUp, bindPiano } from './piano.js';
@@ -33,7 +33,7 @@ export function applyMeter(n,d){
   beginEdit();
   proj.meterN=n;proj.meterD=d;
   const newSPB=Math.max(1,SPB());
-  const newBars=Math.min(24,oldBars);
+  const newBars=Math.min(MAX_BARS,oldBars);
   const newSteps=newBars*newSPB;
   proj.tracks.forEach(t=>{
     const rows=patRows(t);
@@ -81,9 +81,10 @@ export function bindTopControls(){
   UI.swing.addEventListener('input',syncSw);
   const setBars=b=>{
     beginEdit();
-    proj.steps=clamp(Math.round(b),1,24)*SPB();
+    proj.steps=clamp(Math.round(b),1,MAX_BARS)*SPB();
     syncBarsUI();
     if(Play.playing){stopPlay();setTimeout(togglePlay,60)}
+    if(Math.round(proj.steps/SPB())>=32)autoFitZoom(); // 长曲：先按需缩小视图，再统一重绘一次
     structural(true);renderInspector();rebuildEvents();markDirtyUI();
     commitEdit();
   };
@@ -92,9 +93,9 @@ export function bindTopControls(){
     if(UI.barsN){UI.barsN.value=b;if(UI.barsV)UI.barsV.textContent=b}
   }
   UI.barsN.addEventListener('change',()=>setBars(+UI.barsN.value||4));
-  UI.barsN.addEventListener('input',()=>{const v=clamp(+UI.barsN.value||1,1,24);if(UI.barsV)UI.barsV.textContent=v});
+  UI.barsN.addEventListener('input',()=>{const v=clamp(+UI.barsN.value||1,1,MAX_BARS);if(UI.barsV)UI.barsV.textContent=v});
   // 小节 +/-：支持“长按连续增减”；键盘/触屏单击仍只加一次
-  const setBarsRel=d=>setBars(clamp(Math.round(proj.steps/SPB())+d,1,24));
+  const setBarsRel=d=>setBars(clamp(Math.round(proj.steps/SPB())+d,1,MAX_BARS));
   let barHoldT=null,barClickGuard=false;
   const barHoldEnd=()=>{if(barHoldT){clearInterval(barHoldT);barHoldT=null}};
   const barHoldStart=(d,ev)=>{
@@ -199,7 +200,7 @@ export function bindTopControls(){
     if(e.ctrlKey||e.metaKey){
       e.preventDefault();
       const z=uiZoom*(e.deltaY<0?1.2:1/1.2);
-      zoomAround(clamp(z,.4,8));
+      zoomAround(clamp(z,ZOOM_MIN,8));
       return;
     }
     if(Math.abs(e.deltaY)>Math.abs(e.deltaX)){
@@ -320,7 +321,7 @@ export function showHelp(){
     <div class="h2">① 快速开始</div>
     <div class="small" style="line-height:1.9">
       ・ 点右侧 <b style="color:var(--acc)">✨ AI 作曲</b> → 选风格、调情绪、点「一键成曲」→ <kbd>空格</kbd> 播放。<br>
-      ・ 顶部<b>曲长·小节</b>可 1–24 小节自由加减；AI 会按「引子→发展→高潮→尾声」自动编曲。<br>
+      ・ 顶部<b>曲长·小节</b>可 1–${MAX_BARS} 小节自由加减；AI 会按「引子→发展→高潮→尾声」自动编曲。<br>
       ・ <b>🔁 循环</b>开=整曲循环；关=单次播放，播完自然淡出收尾。
     </div>
 

@@ -49,7 +49,7 @@
       <div class="knobTop"><span>曲长·小节</span><span class="v" id="barsV">4</span></div>
       <div style="display:flex;gap:4px;align-items:center">
         <button class="hchip" id="barMinus" title="减少 1 小节">−</button>
-        <input class="numInp" id="barsN" type="number" min="1" max="24" value="4" style="width:42px">
+        <input class="numInp" id="barsN" type="number" min="1" max="128" value="4" style="width:42px">
         <button class="hchip" id="barPlus" title="增加 1 小节">+</button>
       </div>
     </div>
@@ -154,7 +154,7 @@
       <button class="btn sm danger" id="clearSelBtn" title="清空选中音轨的图案 (Delete)">🧹 清空选中轨</button>
       <button class="btn sm on" id="followBtn" title="播放时自动滚动时间线跟随播放头">↳ 跟随</button>
       <div class="zoomGrp" title="时间线视图缩放（只改变显示大小，不改曲长/音符）">
-        <button id="zoomOut" title="缩小">−</button><span class="zv" id="zoomV">100%</span><button id="zoomIn" title="放大">＋</button><button id="zoomFit" class="fit" title="自动适配窗口宽度">⤢ 适配</button>
+        <button id="zoomOut" title="缩小">−</button><span class="zv" id="zoomV">100%</span><button id="zoomIn" title="放大">＋</button><button id="zoomFit" class="fit" title="适配窗口宽度（长曲缩放下限 50%，横向滚动查看）">⤢ 适配</button>
       </div>
     </div>
     <div class="seekBar" id="seekBar">

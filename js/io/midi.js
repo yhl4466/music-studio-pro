@@ -1,5 +1,5 @@
 /* [midi.js] source: Pro.html 2496-2787（SMF 格式 1 导出 / 导入） */
-import { proj, newTrack, allocPat, meterN, meterD, SPB, rowMidi } from '../core/state.js';
+import { proj, newTrack, allocPat, meterN, meterD, SPB, rowMidi, MAX_BARS } from '../core/state.js';
 import { KIT, MEL_ROWS, SCALES, ROLES, PREC_U_PER_STEP, trackRows } from '../core/theory.js';
 import { toast, downloadBlob, UI, hooks } from '../core/util.js';
 import { beginEdit, commitEdit, markDirtyUI, setPendingPre } from './project.js';
@@ -244,7 +244,7 @@ export function importMidiData(m){
     }
   }
   proj.spb=16;proj.meterN=4;proj.meterD=4;
-  proj.steps=Math.max(16,Math.min(24*16,Math.ceil((maxStep+1)/16)*16));
+  proj.steps=Math.max(16,Math.min(MAX_BARS*16,Math.ceil((maxStep+1)/16)*16));
   proj.tracks=[];
   const drumsOn=m.events.filter(e=>e.type==='on'&&e.ch===9);
   let drumT=null;

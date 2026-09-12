@@ -2,14 +2,87 @@
 import { proj, patRows, newTrack, allocPat, SPB } from '../core/state.js';
 import { clamp, pick } from '../core/util.js';
 import { ROLES } from '../core/theory.js';
-import { barDyn } from './styles.js';
+import { planFromSections } from './styles.js';
 import { bsOf, fillArp, fillHarmony } from './harmony.js';
 import { fillDrums, fillBass } from './rhythm.js';
+
+/* =========================================================================
+   动机层（分层生成 · 第二层）：核心动机 + 四种发展变换
+   —— 动机用「相对音程 + 节奏时值」表示（intervals[0] 恒为 0，单位=音阶级数/步），
+      渲染时再吸附到段落内的和弦音域上，因此可以自由转调/倒影而不越界。
+   ========================================================================= */
+export const MOTIF_TRANSFORMS=['transpose','invert','rhythmStretch','fragment'];
+const MOTIF_LEN_CHOICES=[2,2,3,4];
+const nearestDeg=(pool,deg)=>pool.reduce((best,x)=>Math.abs(x-deg)<Math.abs(best-deg)?x:best,pool[0]);
+/* 生成 2~4 音的核心动机；scale = 可用音级（一般传本小节的和弦音），seed = 起音参考（续写衔接） */
+export function buildMotif(rng,scale,seed){
+  const pool=(scale&&scale.length?scale.slice():[0,1,2,3,4]).sort((a,b)=>a-b);
+  const root=(seed==null)?pick(pool):nearestDeg(pool,seed);
+  const n=2+Math.floor(rng.f()*3);            // 2~4 音
+  const intervals=[0],lens=[],onsets=[0];
+  let on=0;
+  for(let i=1;i<n;i++){
+    // 以级进为主（±1、±2 级），偶发小跳（±4）
+    let iv=rng.chance(.72)?(rng.chance(.52)?1:-1):(rng.chance(.5)?2:-2);
+    if(rng.chance(.12))iv*=2;
+    intervals.push(iv);
+    const len=pick(MOTIF_LEN_CHOICES);
+    lens.push(len);on+=len;onsets.push(on);
+  }
+  lens.push(pick([2,3,4]));
+  return {root,intervals,lens,onsets,span:on+lens[lens.length-1],transform:'core',degree:intervals.length};
+}
+/* 四种发展变换：transpose（整体转调）/ invert（倒影）/ rhythmStretch（节奏伸缩）/ fragment（取片段，可重复一次） */
+export function developMotif(motif,rng,transformType){
+  const m=motif||{root:0,intervals:[0,1,0],lens:[2,2,4],onsets:[0,2,4]};
+  const type=(transformType&&MOTIF_TRANSFORMS.indexOf(transformType)>=0)?transformType:rng.pick(MOTIF_TRANSFORMS);
+  const out={root:m.root,intervals:m.intervals.slice(),lens:m.lens.slice(),onsets:m.onsets.slice(),transform:type,degree:m.intervals.length};
+  const rebase=()=>{const on=[];let acc=0;out.lens.forEach(l=>{on.push(acc);acc+=l});out.onsets=on;out.span=acc};
+  if(type==='transpose'){
+    const mag=rng.chance(.62)?1:2;
+    out.root=m.root+(rng.chance(.5)?mag:-mag); // 整体移位（渲染时会吸附回和弦音）
+  }else if(type==='invert'){
+    out.intervals=m.intervals.map((iv,i)=>i===0?0:-iv); // 以首音为轴镜像
+  }else if(type==='rhythmStretch'){
+    const k=rng.chance(.5)?2:1.5;
+    out.lens=m.lens.map(l=>Math.max(1,Math.round(l*k)));
+    rebase();
+  }else{ // fragment：取前/后片段，三成概率原样重复一次（形成呼应）
+    const keep=Math.max(2,Math.ceil(m.intervals.length/2));
+    const from=(m.intervals.length>keep&&rng.chance(.5))?(m.intervals.length-keep):0;
+    out.intervals=m.intervals.slice(from,from+keep);
+    out.lens=m.lens.slice(from,from+keep);
+    const base=m.onsets[from]||0;
+    out.onsets=m.onsets.slice(from,from+keep).map(x=>x-base);
+    out.degree=out.intervals.length;
+    if(rng.chance(.35)){
+      const n2=out.intervals.length;
+      const rep=out.intervals.map((iv,i)=>i===n2-1?iv+(rng.chance(.5)?1:-1):iv);
+      const shift=out.onsets[n2-1]+out.lens[n2-1];
+      out.intervals=out.intervals.concat(rep);
+      out.lens=out.lens.concat(out.lens.slice());
+      out.onsets=out.onsets.concat(out.onsets.map(o=>o+shift));
+      out.degree=out.intervals.length;
+    }
+    rebase();
+  }
+  out.transform=type;
+  return out;
+}
+/* 段落槽位 → 变换选择：引子/尾声回归主题（转调/片段），发展多变形，高潮用伸缩推动 */
+export function motifTransformForSlot(slot,rng){
+  if(slot===2)return rng.chance(.6)?'rhythmStretch':'transpose';
+  if(slot===1)return rng.pick(['invert','fragment','transpose','rhythmStretch']);
+  return rng.chance(.5)?'transpose':'fragment';
+}
+/* 动机轨迹（模块内导出，供自检/调试观察，不挂全局） */
+export const motifTrace={core:null,phrases:[]};
 
 /* ---------- 主旋律（按段落写作：引子动机→发展推进→高潮高音区→尾声收束） ---------- */
 export function fillLead(t,rng,chords,secs,style,E,C,band,seed){
   const S=proj.steps,B=secs.length;
   for(let s=0;s<S;s++)for(let r=0;r<patRows(t);r++)t.pat[s][r]=0;
+  const F=planFromSections(secs,E,C); // 分层生成：每小节密度/力度/动机槽位
   const lo=band[0],hi=band[1];
   if(seed!=null)seed=clamp(Math.round(seed),lo,hi);
   // 留白式节奏骨架（每 16 步一拍栏，总时值约 9~13 步，其余休止）
@@ -21,7 +94,7 @@ export function fillLead(t,rng,chords,secs,style,E,C,band,seed){
     [[0,2],[2,2],[4,2],[8,2],[10,2],[12,3]]     // 推进
   ];
   const rIdx=E>.68?4:(E>.45?2:(E>.22?1:0));
-  const pickR=()=>RHYTHMS[clamp(rIdx+rng.i(-1,1),0,RHYTHMS.length-1)];
+  const pickR=k=>RHYTHMS[clamp((k==null?rIdx:k)+rng.i(-1,1),0,RHYTHMS.length-1)];
   const toneIn=(b,minR,maxR)=>{const c=chords[b].rows.filter(r=>r>=minR&&r<=maxR);return c.length?c:chords[b].rows};
   const place=(bs,step,row,len,vel)=>{
     const end=Math.min(S,bs+step+len);
@@ -32,9 +105,12 @@ export function fillLead(t,rng,chords,secs,style,E,C,band,seed){
   let prevEnd=null;
   let phrase=null;
   let motifCells=null;
+  let coreMotif=null; // 整曲唯一的“核心动机 DNA”，由第一个乐句陈述、后续乐句发展
+  motifTrace.core=null;motifTrace.phrases=[];
   for(let b=0;b<B;b++){
     const raw=secs[b],sec=raw==='all'?'build':raw;
-    const D=barDyn(sec,E,C);
+    const M=F.bars[b]||{},D={e:M.density==null?.62:M.density,v:M.vel==null?.7:M.vel};
+    const densIdx=clamp(rIdx+(D.e>=.9?1:(D.e<=.4?-1:0)),0,RHYTHMS.length-1); // 段落密度 → 节奏骨架疏密
     const bs=bsOf(b);
     if(sec==='outro'){
       if(b===B-1){
@@ -59,12 +135,7 @@ export function fillLead(t,rng,chords,secs,style,E,C,band,seed){
       }
       continue;
     }
-    if(sec==='intro'){
-      // 引子动机：前 1~2 小节铺可闻的短动机，让开头"有音乐"
-      const introN=secs.filter(s=>s==='intro').length;
-      const introPlayBars=Math.min(introN,2);
-      if(b>=introPlayBars)continue;
-    }
+    // 引子动机：整个引子都保持可闻的稀疏动机（引子已封顶 2~6 小节），开头不再长时间只剩垫音
     // 每 2 小节建乐句：动机句 → 应答句，起始音承接上一句
     if(b%2===0){
       const pStart=toneIn(b,lo,midR);
@@ -92,13 +163,44 @@ export function fillLead(t,rng,chords,secs,style,E,C,band,seed){
     }
     const anchors=[{p:0,d:phrase.startD},{p:16,d:phrase.peakD},{p:31,d:phrase.endD}];
     const targetD=pos=>{let a=anchors[0],z=anchors[1];if(pos>16){a=anchors[1];z=anchors[2];}const tt=(pos-a.p)/((z.p-a.p)||1);return a.d+(z.d-a.d)*tt;};
-    let barR=pickR();
-    if(b%2===1&&phrase.variant==='same')barR=RHYTHMS[rIdx]; // 动机重复：节奏一致
+    // —— 动机陈述（乐句首小节）：第一句立核心动机，之后全部由 developMotif 变换而来 ——
+    let ledMotif=null;
+    if(b%2===0){
+      const pool=toneIn(b,lo,hi);
+      if(!coreMotif){
+        // 核心动机的音高素材取“音域内圈”，避免根音贴边导致动机被压平
+        const inner=pool.filter(d=>d>=lo+2&&d<=hi-2);
+        coreMotif=buildMotif(rng,inner.length?inner:pool,seed!=null?seed:null); // 续写时接住上一段末音
+        motifTrace.core={root:coreMotif.root,intervals:coreMotif.intervals.slice(),lens:coreMotif.lens.slice(),transform:'core'};
+        ledMotif=coreMotif;
+      }else{
+        ledMotif=developMotif(coreMotif,rng,motifTransformForSlot(M.slot,rng));
+      }
+      // 动机落地：整体平移（而不是逐音 clamp），保证音程轮廓完整保留在音域内
+      const iv=ledMotif.intervals;
+      const ivMin=Math.min.apply(null,iv),ivMax=Math.max.apply(null,iv);
+      const want=nearestDeg(pool,clamp(phrase.startD,lo,hi))+clamp(ledMotif.root-coreMotif.root,-3,3);
+      const bLo=lo-ivMin,bHi=hi-ivMax;
+      const baseRow=(bLo<=bHi)?clamp(want,bLo,bHi):clamp(want,lo,hi);
+      for(let i=0;i<iv.length;i++){
+        const st=ledMotif.onsets[i];
+        if(st>=16)break;
+        const row=clamp(baseRow+iv[i],lo,hi);
+        const arch=clamp(.62+.38*Math.max(0,1-Math.abs(st-15.5)/15.5),.55,1);
+        const mv=clamp((st%4===0?.95:(st%2===0?.72:.58))*D.v*arch,.08,1);
+        place(bs,st,row,Math.min(ledMotif.lens[i],16-st),mv);
+      }
+      cur=clamp(baseRow+iv[iv.length-1],lo,hi);
+      motifTrace.phrases.push({bar:b,sec,transform:ledMotif.transform,notes:iv.length,root:baseRow,intervals:iv.slice(),lens:ledMotif.lens.slice(),onsets:ledMotif.onsets.slice()});
+    }
+    // 动机句不再走“随机节奏骨架”；应答句（奇数小节）仍用骨架生成 → 陈述—应答
+    let barR=ledMotif?[]:pickR(densIdx);
+    if(b%2===1&&phrase.variant==='same')barR=RHYTHMS[densIdx]; // 动机重复：节奏一致
     if(sec==='intro')barR=barR.filter(h=>h[0]%4===0); // 引子动机可闻但不密集
-    // 偶尔整体跳过个别音，制造呼吸感
-    if(sec!=='climax'&&rng.chance(.25))barR=barR.filter((h,i)=>i!==barR.length-1||rng.chance(.6));
+    // 偶尔整体跳过个别音，制造呼吸感（密度高的段落更少跳）
+    if(D.e<.9&&rng.chance(clamp(.42-.24*D.e,.1,.4)))barR=barR.filter((h,i)=>i!==barR.length-1||rng.chance(.6));
     let leapUsed=0;
-    const leapProb=clamp((sec==='intro'?.04:(sec==='build'?.14:(sec==='climax'?.3:.1)))*(0.7+0.4*E)*(phrase.variant==='motif'?.5:1),0,.4);
+    const leapProb=clamp(clamp(D.e-.3,0,1)*.45*(0.7+0.4*E)*(phrase.variant==='motif'?.5:1),0,.4);
     for(let hiIdx=0;hiIdx<barR.length;hiIdx++){
       const hit=barR[hiIdx];
       let s0=hit[0],len=hit[1];

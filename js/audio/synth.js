@@ -5,7 +5,36 @@ import { actx, A } from '../core/state.js';
 import { getTrackBus, noiseBuf, ensureAudio, setGate } from './master.js';
 
 /* ---------- 合成器音色 ---------- */
-export const VOICE_LIMIT=32; // 最大复音数（超出时抢占最弱/最老音源）
+export const VOICE_LIMIT=48; // 最大复音数（实时播放；超出时优先抢“其它轨的最弱音源”，绝不抢当前正在成组的和弦）
+/* 为即将同时发声的一组音（如 4 音柱式/垫音）预留声部：
+   先清理已结束音源，再优先抢其它轨最弱的音源腾出整组空间，
+   避免出现“半截和弦”——同一个和弦里后触发的音把先触发的音抢掉。 */
+export function reserveVoices(ctx,n,group){
+  if(!ctx||!ctx._act||typeof ctx.startRendering==='function')return; // 离线渲染不限流
+  const need=Math.max(0,n|0);
+  if(!need)return;
+  const now=ctx.currentTime||0;
+  ctx._act=ctx._act.filter(v=>v.until>now+.02);
+  let guard=0;
+  while(ctx._act.length+need>VOICE_LIMIT&&ctx._act.length&&guard++<VOICE_LIMIT*4){
+    let idx=-1;
+    for(let i=0;i<ctx._act.length;i++){ // 优先：其它轨的最弱/最老
+      const v=ctx._act[i];
+      if(group!=null&&v.group===group)continue;
+      if(idx<0||v.vel<ctx._act[idx].vel-1e-6||(Math.abs(v.vel-ctx._act[idx].vel)<1e-6&&v.until<ctx._act[idx].until))idx=i;
+    }
+    if(idx<0){ // 只剩本轨旧音源：按最弱/最老抢占（轨内声部回收）
+      let best=0;
+      for(let i=1;i<ctx._act.length;i++){
+        const v=ctx._act[i],b=ctx._act[best];
+        if(v.vel<b.vel-1e-6||(Math.abs(v.vel-b.vel)<1e-6&&v.until<b.until))best=i;
+      }
+      idx=best;
+    }
+    try{ctx._act[idx].kill()}catch(e){}
+    ctx._act.splice(idx,1);
+  }
+}
 export const PARTIALS={default:[1],bell:[1,2.01,2.99,4.03,5.51],organ:[1,2,4.01]};
 export const ORG_GAIN=[.8,.42,.16];
 export function synthVoice(ctx,dest,time,o){
@@ -102,20 +131,13 @@ export function synthVoice(ctx,dest,time,o){
     srcs.forEach(osc=>{try{osc.stop((ctx.currentTime||0)+.09)}catch(e){}});
   };
   if(!manual&&ctx._act&&typeof ctx.startRendering!=='function'){
-    // 复音限制（仅实时播放）：超过上限时抢掉“最弱/最老”的音源。
+    // 复音限制（仅实时播放）：整步/整组预留由 engine.fireStep 负责，这里只做单声部兜底。
+    // grp = 同一次“同时发声组”的标识（同一 step 的所有旋律轨共享），保证组内互不抢占。
     // 离线(OfflineAudioContext)调度阶段 currentTime 固定为 0，
     // 若同样限流会把后续旋律全抢光——导出时禁用。
-    ctx._act=ctx._act.filter(v=>v.until>((ctx.currentTime||0)+.02));
-    if(ctx._act.length>=VOICE_LIMIT){
-      let idx=0;
-      for(let i=1;i<ctx._act.length;i++){
-        const a=ctx._act[i],b=ctx._act[idx];
-        if(a.vel<b.vel-1e-6||(Math.abs(a.vel-b.vel)<1e-6&&a.until<b.until))idx=i;
-      }
-      try{ctx._act[idx].kill()}catch(e){}
-      ctx._act.splice(idx,1);
-    }
-    ctx._act.push({vel:V,until:relEnd+.1,kill});
+    const grp=(o.grp!=null)?o.grp:(o.bus==null?null:o.bus);
+    reserveVoices(ctx,1,grp);
+    ctx._act.push({vel:V,until:relEnd+.1,kill,group:grp,bus:o.bus==null?null:o.bus});
   }
   return manual?{kill}:null;
 }

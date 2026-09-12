@@ -17,6 +17,12 @@ export function barSeconds(){return meterN()*(60/(proj.bpm||120))} // BPM 按“
 export function isStraightFourFour(){return meterN()===4&&meterD()===4}
 export function aiMeterOK(){return isStraightFourFour()}
 export function fmtPos(step){const spb=SPB(),bs=beatSteps();const bar=Math.floor(step/spb)+1,beat=Math.floor((step%spb)/bs)+1,cell=step%bs+1;return bar+'.'+beat+'.'+cell}
+/* 曲长上限（小节）：所有涉及“曲长上限”的地方统一引用此常量，不再散落硬编码 */
+export const MAX_BARS=128;
+/* 视图缩放硬下限 / 格子最小像素：长曲改为“横向滚动 + 虚拟渲染”，格子上限不再往 2~4px 压 */
+export const ZOOM_MIN=.4, CELL_MIN_PX=8;
+/* 长曲适配下限：≥64 小节时「⤢适配」不再缩到全屏可见，只保证不小于 50%（配合横向滚动） */
+export const FIT_MIN_LONG=.5;
 /* 某一轨某行的绝对 MIDI（独立锚点 + 轨内 shift + 音阶度数） */
 export function rowMidi(t,r){
   const kb=keyBaseMidi(proj.key,(t&&t.keyOct)?t.keyOct:proj.keyOct);
@@ -98,11 +104,19 @@ export function ensurePatSizes(){
     pruneTrackPrec(t); // 曲长变化后清理越界的精确时值音符
   });
 }
-export function stepWidth(){const S=proj.steps;return S<=16?32:S<=32?26:S<=64?20:S<=128?14:S<=256?9:7}
+export function stepWidth(){
+  const S=proj.steps;
+  // 长曲（≥64 小节）改为平坦下限 8px：不再为了“全屏可见”把格子压到 4~6px，
+  // 长曲靠横向滚动 + 时间线虚拟渲染（timeline.js 的 VIRTUAL 窗口池）保证流畅；
+  // ≤64 小节仍走原“按步数”阶梯 → 旧工程像素宽度不变
+  const bars=S/Math.max(1,SPB());
+  if(bars>=64)return 8;
+  return S<=16?32:S<=32?26:S<=64?20:S<=128?14:S<=256?9:7;
+}
 /* 视图级缩放：只改变格子的显示宽度，不改变曲长与音符 */
 export let uiZoom=1;
 export function setUiZoom(v){uiZoom=v}
-export function effStepWidth(){return Math.max(4,Math.round(stepWidth()*uiZoom))}
+export function effStepWidth(){return Math.max(CELL_MIN_PX,Math.round(stepWidth()*uiZoom))}
 export function pruneTrackPrec(t){
   if(!t.prec)return;
   const lim=proj.steps*PREC_U_PER_STEP;
