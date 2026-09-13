@@ -19,8 +19,11 @@ export function aiMeterOK(){return isStraightFourFour()}
 export function fmtPos(step){const spb=SPB(),bs=beatSteps();const bar=Math.floor(step/spb)+1,beat=Math.floor((step%spb)/bs)+1,cell=step%bs+1;return bar+'.'+beat+'.'+cell}
 /* 曲长上限（小节）：所有涉及“曲长上限”的地方统一引用此常量，不再散落硬编码 */
 export const MAX_BARS=128;
-/* 视图缩放硬下限 / 格子最小像素：长曲改为“横向滚动 + 虚拟渲染”，格子上限不再往 2~4px 压 */
-export const ZOOM_MIN=.4, CELL_MIN_PX=8;
+/* 视图缩放硬下限 / 格子最小像素：
+   CELL_MIN_PX 是"缩放真正生效"的下限——长曲基础格宽已是 8px（stepWidth 平坦下限），
+   若下限也取 8 则缩到 100% 以下会被卡住（画面不动、只有百分比在变），故取 4px：
+   128 小节 100%→8px、50%→4px、再往下才被真下限卡住 */
+export const ZOOM_MIN=.4, CELL_MIN_PX=4;
 /* 长曲适配下限：≥64 小节时「⤢适配」不再缩到全屏可见，只保证不小于 50%（配合横向滚动） */
 export const FIT_MIN_LONG=.5;
 /* 某一轨某行的绝对 MIDI（独立锚点 + 轨内 shift + 音阶度数） */

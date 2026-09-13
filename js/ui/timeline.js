@@ -25,7 +25,8 @@ function reindexMove(c,ti,r,cell,so,sn){
     if(sn>=0&&sn<cols.length)cols[sn].push(cell);
   }
 }
-/* 窗口整体滑动 k 列：复用池内节点（k>0 右移、k<0 左移），只改动进出窗口的列 */
+/* 窗口整体滑动 k 列：**在 .pc 之间搬移 DOM 节点**（.lab 与偏移占位元素永不移动）
+   右侧：最左 k 列搬到队尾；左侧：最右 k 列插到队首。槽位顺序 = DOM 顺序。 */
 function rotateWindow(k){
   const c=proj._uiCache;if(!c||!c.win||!c.poolRows)return;
   k=Math.trunc(k)||0;
@@ -41,7 +42,7 @@ function rotateWindow(k){
       if(!pool||!row)continue;
       if(right){
         const moved=pool.splice(0,kk);
-        for(const cell of moved)row.appendChild(cell); // 移到行尾（网格顺序=DOM 顺序）
+        for(const cell of moved)row.appendChild(cell); // 只搬 .pc，偏移占位元素留在原处
         pool.push.apply(pool,moved);
         for(let i=0;i<moved.length;i++){
           const so=from+i,sn=from+n+i;
@@ -50,7 +51,7 @@ function rotateWindow(k){
       }else{
         const moved=pool.splice(n-kk,kk);
         const anchor=pool[0]||null;
-        for(let i=0;i<moved.length;i++)row.insertBefore(moved[i],anchor);
+        for(let i=0;i<moved.length;i++)row.insertBefore(moved[i],anchor); // 插到队首（占位元素之后）
         pool.unshift.apply(pool,moved);
         for(let i=0;i<moved.length;i++){
           const so=from+n-kk+i,sn=from-kk+i;
@@ -76,32 +77,90 @@ function rotateWindow(k){
     }
   }
   c.win.from=from+k;
-  proj.tracks.forEach((t,ti)=>{
-    const rowEls=c.poolRowEls[ti]||[];
-    for(let r=0;r<rowEls.length;r++)if(rowEls[r])rowEls[r].style.gridTemplateColumns=rowTemplate(c.win);
-  });
-  if(ruler)ruler.style.gridTemplateColumns=rulerTemplate(c.win);
+  setPoolVars(c.win.from,n); // 单点写入：83 行模板不再逐个重写
 }
 /* 大跨度跳转：不搬节点，只把池内每个格子重新贴到新窗口的步号上 */
 function resetWindow(from,n){
   const c=proj._uiCache;if(!c||!c.poolRows)return;
   proj.tracks.forEach((t,ti)=>{
     const rows=patRows(t);
-    const rowEls=c.poolRowEls[ti]||[];
     for(let r=0;r<rows;r++){
       const pool=c.poolRows[ti]&&c.poolRows[ti][r];
-      const row=rowEls[r];
-      if(!pool||!row)continue;
+      if(!pool)continue;
       for(let i=0;i<pool.length;i++)tagCell(pool[i],ti,r,from+i);
-      row.style.gridTemplateColumns=rowTemplate({from,n});
+    }
+  });
+  const ruler=UI.ruler;
+  if(ruler&&c.rulerCells)for(let i=0;i<c.rulerCells.length;i++)tagRulerCell(c.rulerCells[i],from+i);
+  setWindowIndex(c,from,n);
+  setPoolVars(from,n);
+}
+/* 池列数变化（视口宽/缩放变化）：只增删 .pc/.rs 节点，tgroup/thead/lab 结构完全不动、min-width 不动 */
+function reshapePool(n){
+  const c=proj._uiCache;
+  if(!c||!c.win||!c.poolRows)return false;
+  const cw=effStepWidth()||CELL_MIN_PX;
+  const inner=$('#tlInner');
+  if(inner)inner.style.setProperty('--cw',cw+'px');
+  let from=windowFrom(n);
+  proj.tracks.forEach((t,ti)=>{
+    const rows=patRows(t);
+    for(let r=0;r<rows;r++){
+      const pool=c.poolRows[ti]&&c.poolRows[ti][r];
+      const row=(c.poolRowEls[ti]||[])[r];
+      if(!pool||!row)continue;
+      if(n>pool.length){ // 增列：新格子追加到行尾（.lab 与偏移占位元素始终在最前，不动）
+        for(let i=pool.length;i<n;i++){
+          const cell=makeCell(ti,r,from+i);
+          pool.push(cell);row.appendChild(cell);
+        }
+      }else if(n<pool.length){ // 减列：从队尾回收节点
+        const drop=pool.splice(n,pool.length-n);
+        drop.forEach(cell=>{try{cell.remove()}catch(e){}});
+      }else{
+        for(let i=0;i<pool.length;i++){ // 列数不变但起点可能变
+          if(pool[i]._s!==from+i)tagCell(pool[i],ti,r,from+i);
+        }
+      }
     }
   });
   const ruler=UI.ruler;
   if(ruler&&c.rulerCells){
-    for(let i=0;i<c.rulerCells.length;i++)tagRulerCell(c.rulerCells[i],from+i);
-    ruler.style.gridTemplateColumns=rulerTemplate({from,n});
+    if(n>c.rulerCells.length){
+      for(let i=c.rulerCells.length;i<n;i++){
+        const cell=el('div','rs'+stepClass(from+i));
+        cell.dataset.s=from+i;cell._s=from+i;
+        if((from+i)%SPB()===0)cell.innerHTML='<span>'+((from+i)/SPB()+1)+'</span>';
+        c.rulerCells.push(cell);ruler.appendChild(cell);
+      }
+    }else if(n<c.rulerCells.length){
+      const drop=c.rulerCells.splice(n,c.rulerCells.length-n);
+      drop.forEach(cell=>{try{cell.remove()}catch(e){}});
+    }
   }
+  c.win.n=n;c.win.cw=cw;c.win.viewW=measuredViewW();
   setWindowIndex(c,from,n);
+  setPoolVars(from,n,cw);
+  try{paintRegionUI()}catch(e){}
+  try{markRhythmUI()}catch(e){}
+  try{hooks.seek?.updateSeekUI?.(Play.step)}catch(e){}
+  return true;
+}
+/* 缩放：只改 CSS 变量 --cw + 池列数重塑（不再整体重建 trackList），并保持播放头的视觉锚点 */
+function applyZoomCw(){
+  const c=proj._uiCache,tl=tlEl();
+  if(!c||!c.win)return false;
+  const cwOld=c.win.cw||effStepWidth();
+  const anchor=cwOld?((tl&&tl.scrollLeft?tl.scrollLeft:0)/cwOld):0;
+  const cwNew=effStepWidth()||CELL_MIN_PX;
+  const inner=$('#tlInner');
+  if(inner)inner.style.setProperty('--cw',cwNew+'px');
+  const n=poolColsFor(measuredViewW(),cwNew);
+  c.win.cw=cwNew;
+  if(!reshapePool(n))return false;
+  if(tl)tl.scrollLeft=Math.max(0,Math.round(anchor*cwNew));
+  syncWindowNow(true);
+  return true;
 }
 function tagRulerCell(cell,s){
   cell.dataset.s=s;
@@ -113,16 +172,21 @@ export function syncWindowNow(force){
   const c=proj._uiCache;
   if(!c||!c.win||!c.win.n)return;
   const cw=effStepWidth()||CELL_MIN_PX;
+  if(c.win.cw!==cw){applyZoomCw();return}       // 格子宽度变了（缩放）→ 只重塑池，不重建结构
   const n=poolCols();
-  if(c.win.n!==n||c.win.cw!==cw){structural(true);return} // 池尺寸/格子宽度变化 → 整体重建（含标尺）
-  const nf=windowFrom();
+  if(c.win.n!==n){                              // 池列数变化（真实 resize，带滞回）→ 只增删格子
+    if(!reshapePool(n)){structural(true);return}
+  }
+  const nf=windowFrom(n);
   if(!force&&nf===c.win.from)return;
   const d=nf-c.win.from;
-  if(Math.abs(d)<=Math.floor(n/2))rotateWindow(d); // 小跨度：搬节点复用池（只动进出窗口的列）
-  else resetWindow(nf,n);                          // 大跨度（拖滚动条/跳转）：池内原地重贴步号
-  c.win={from:nf,n:n,cw:cw};
+  if(Math.abs(d)<=Math.floor(n/2))rotateWindow(d); // 小跨度：order 复用池（零节点搬移）
+  else resetWindow(nf,n);                          // 大跨度（拖滚动条/跳转）：原地重贴步号
+  c.win.from=nf;c.win.n=n;c.win.cw=cw;
+  if(!c.win.viewW)c.win.viewW=measuredViewW();
+  setPoolVars(nf,n);
   try{paintRegionUI()}catch(e){}
-  // 格子状态已由 applyCell 整体重贴（className 重建会清掉旧 tribar），这里只需按 prec 重贴细分标记
+  // 格子状态已由 applyCell 增量重贴（含清旧 tribar 标记），这里只需按 prec 重贴细分标记
   try{markRhythmUI()}catch(e){}
   try{hooks.seek?.updateSeekUI?.(Play.step)}catch(e){}
 }
@@ -147,44 +211,75 @@ function bindWindowScroll(){
 export const VIRTUAL=true;
 const WIN_BUF=32;   // 视口左右各预留的列数（避免快速滚动白屏）
 const WIN_SHIFT=16; // 每次窗口滑动的最小列数（块对齐，减少重排次数）
+const POOL_W_TOL=24;// 视口宽变化小于该值视为滚动条抖动，不触发池重塑
 function tlEl(){return document.getElementById('timeline')}
-function viewCols(){ // 一屏能看到的列数
+function measuredViewW(){
   const tl=tlEl();
-  const cw=effStepWidth()||CELL_MIN_PX;
-  const w=(tl&&tl.clientWidth)?tl.clientWidth:1200;
-  return Math.max(8,Math.ceil(w/cw)+2);
+  return (tl&&tl.clientWidth)?tl.clientWidth:((typeof window!=='undefined'&&window.innerWidth)||1200);
 }
-function poolCols(){return Math.max(1,Math.min(proj.steps,viewCols()+2*WIN_BUF))}
-function windowFrom(){ // 窗口起点（0 … steps-pool），带左侧缓冲；按 WIN_SHIFT 列对齐以减少重排
+function viewColsFor(w,cw){return Math.max(8,Math.ceil(w/cw)+2)}
+function poolColsFor(w,cw){return Math.max(1,Math.min(proj.steps,viewColsFor(w,cw)+2*WIN_BUF))}
+function poolCols(){ // 池列数：视口宽用“滞回”取值，滚动条出现/消失造成的 ±20px 抖动不触发重塑
+  const c=proj._uiCache, cw=effStepWidth()||CELL_MIN_PX;
+  let w=measuredViewW();
+  if(c&&c.win&&c.win.viewW&&Math.abs(w-c.win.viewW)<=POOL_W_TOL)w=c.win.viewW;
+  return poolColsFor(w,cw);
+}
+function windowFrom(pool){ // 窗口起点（0 … steps-pool），带左侧缓冲；按 WIN_SHIFT 列对齐以减少重排
   const tl=tlEl();
   const cw=effStepWidth()||CELL_MIN_PX;
   const sc=(tl&&tl.scrollLeft)?tl.scrollLeft:0;
-  const pool=poolCols();
+  const n=pool||poolCols();
   let from=Math.floor(sc/cw)-WIN_BUF;
   from=Math.floor(from/WIN_SHIFT)*WIN_SHIFT;
-  from=Math.max(0,Math.min(from,Math.max(0,proj.steps-pool)));
+  from=Math.max(0,Math.min(from,Math.max(0,proj.steps-n)));
   return from;
 }
-function rowTemplate(win){return 'var(--labW) '+(win.from*effStepWidth())+'px repeat('+win.n+', var(--cw))'}
-function rulerTemplate(win){return 'calc(var(--labW) + 5px) '+(win.from*effStepWidth())+'px repeat('+win.n+', var(--cw))'}
+/* 池偏移/池宽改成 #tlInner 上的 CSS 变量：滚动时只写 1~2 个变量，
+   行的 grid-template-columns 字符串恒定不变（→ 不再每行重写、不再触发整片重排） */
+const ROW_TPL='var(--labW) var(--poolOff) repeat(var(--poolN), var(--cw))';
+const RULER_TPL='calc(var(--labW) + 5px) var(--poolOff) repeat(var(--poolN), var(--cw))';
+function rowTemplate(win){return ROW_TPL}
+function rulerTemplate(win){return RULER_TPL}
+function setPoolVars(from,n,cw){
+  const inner=$('#tlInner');if(!inner)return;
+  const c=effStepWidth();
+  inner.style.setProperty('--poolOff',((from||0)*(cw||c))+'px');
+  inner.style.setProperty('--poolN',String(n));
+}
 function stepClass(s){return s%SPB()===0?' bar':(s%beatSteps()===0?' beat':'')}
 function glowStepNow(){ // 当前“已点亮”的播放列（未点亮返回 -1）
   try{const g=hooks.seek?.glowCol?.();return (g==null?-1:g)}catch(e){return -1}
 }
-/* 一个格子的全部可视状态：底色（数据）＋ 选区 ＋ 播放列 ＋ 节奏细分标记 */
+/* 一个格子的全部可视状态（增量：步号没变且标记未置位时不做任何 DOM 写入） */
 function applyCell(cell,ti,r,s){
   const t=proj.tracks[ti];if(!t||!cell)return;
   const v=(t.pat[s]&&t.pat[s][r])||0;
-  cell.className='pc'+stepClass(s);
-  if(v>0)cell.classList.add('on');
-  if(v>=.85)cell.classList.add('velH');
-  cell.style.removeProperty('--tx');cell.style.removeProperty('--tw');
-  if(regionSel&&regionSel.ti===ti&&s>=regionSel.from&&s<=regionSel.to)cell.classList.add('sel');
-  if(glowStepNow()===s)cell.classList.add('playCol');
+  const on=v>0,velH=v>=.85;
+  if(cell.classList.contains('on')!==on)cell.classList.toggle('on',on);
+  if(cell.classList.contains('velH')!==velH)cell.classList.toggle('velH',velH);
+  if(cell._mk){cell.classList.remove('tribar');cell.style.removeProperty('--tx');cell.style.removeProperty('--tw');cell._mk=0}
+  const bar=s%SPB()===0,beat=!bar&&(s%beatSteps()===0);
+  if(cell.classList.contains('bar')!==bar)cell.classList.toggle('bar',bar);
+  if(cell.classList.contains('beat')!==beat)cell.classList.toggle('beat',beat);
+  const inSel=!!(regionSel&&regionSel.ti===ti&&s>=regionSel.from&&s<=regionSel.to);
+  if(cell.classList.contains('sel')!==inSel)cell.classList.toggle('sel',inSel);
+  const lit=glowStepNow()===s;
+  if(cell.classList.contains('playCol')!==lit)cell.classList.toggle('playCol',lit);
 }
 function tagCell(cell,ti,r,s){
+  if(cell._s===s&&cell._ti===ti&&cell._r===r)return;
+  cell._s=s;cell._ti=ti;cell._r=r;
   cell.dataset.ti=ti;cell.dataset.r=r;cell.dataset.s=s;
   applyCell(cell,ti,r,s);
+}
+/* 新建一个格子（只有此路径会创建 .pc 节点） */
+function makeCell(ti,r,s){
+  const c=el('div','pc'+stepClass(s));
+  c.dataset.ti=ti;c.dataset.r=r;c.dataset.s=s;
+  c._s=s;c._ti=ti;c._r=r;
+  applyCell(c,ti,r,s);
+  return c;
 }
 /* 窗口池内的索引重建（cols / cells 只用窗口内的步，其它步保持空数组，旧读取方自动成为空操作） */
 function setWindowIndex(c,from,n){
@@ -219,7 +314,8 @@ export function setZoomUI(z,noRender){
   setUiZoom(clamp(z,ZOOM_MIN,8));
   syncZoomUI();
   if(noRender)return; // 调用方自行统一重绘（避免长曲下重复 structural）
-  structural(true);
+  if(VIRTUAL&&proj._uiCache&&proj._uiCache.win)applyZoomCw(); // 缩放只重塑池 + 改 CSS 变量，不再整体重建
+  else structural(true);
   try{hooks.seek?.updateSeekUI?.(Play.step)}catch(e){}
 }
 export function zoomAround(z){ // z: 目标倍率
@@ -264,13 +360,17 @@ export function structural(full){
   inner.style.setProperty('--cw',cw+'px');
   inner.style.setProperty('--stepsN',S);
   // 虚拟路径：显式撑出整曲滚动宽度（窗口池只有一屏多宽，不再靠内容撑宽）
-  if(VIRTUAL)inner.style.minWidth='calc(var(--labW) + '+(S*cw)+'px + 32px)';
+  // 用 CSS 变量表达 → 只写一次字符串，缩放/滚动都不再改它（消除宽度抖动导致的布局偏移）
+  if(VIRTUAL)inner.style.minWidth='calc(var(--labW) + var(--stepsN) * var(--cw) + 32px)';
   else inner.style.removeProperty('min-width');
   // 行名（左侧 .lab）依赖：调性/调式/基音八度 + 每轨 shift/keyOct/行数；缓存 rev 只覆盖前者
   const labSig=proj.key+'|'+proj.mode+'|'+proj.keyOct+'|'+proj.tracks.map(t=>(t.shift||0)+','+(t.keyOct||0)+','+patRows(t)).join(';');
   if(full||!proj._uiCache||proj._uiCache.steps!==S||proj._uiCache.rev!==(proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct)){
     proj._uiCache={steps:S,rev:proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct,labSig};
-    proj._uiCache.win=VIRTUAL?{from:windowFrom(),n:poolCols(),cw:effStepWidth()}:null;
+    const _n=VIRTUAL?poolCols():0;
+    const _from=VIRTUAL?windowFrom(_n):0;
+    proj._uiCache.win=VIRTUAL?{from:_from,n:_n,cw:effStepWidth(),viewW:measuredViewW()}:null;
+    if(VIRTUAL)setPoolVars(_from,_n,cw); // 先写池变量，行模板随即生效
     renderRuler();
     renderTrackList();
     buildCaches();
@@ -299,6 +399,7 @@ export function renderRuler(){
   r.style.gridTemplateColumns=win?rulerTemplate(win):'calc(var(--labW) + 5px) repeat(var(--stepsN), var(--cw))';
   const sp=el('div','rl','');
   r.appendChild(sp);
+  if(win)r.appendChild(el('div','')); // 与行同理：占住标尺的偏移轨道，避免整条标尺左移一列
   if(win)proj._uiCache.rulerCells=[];
   for(let s=from;s<to;s++){
     const c=el('div', s%SPB()===0?'rs bar':(s%beatSteps()===0?'rs beat':'rs plain'));
@@ -398,10 +499,11 @@ export function buildTrackGroup(t,ti,list){
           }
         });
         row.appendChild(lab);
+        // 虚拟路径：行模板是 [labW][poolOff][repeat(poolN)] 共 n+2 条轨道，而行内元素只有 lab+n 格，
+        // CSS 自动放置不会为空轨道留位 → 必须放一个“占位元素”占住偏移轨道，否则整行左移一列。
+        if(win)row.appendChild(el('div','')); // 无类名的空占位：宽度由所属轨道(--poolOff)决定
         for(let s=from;s<to;s++){ // 虚拟路径只建窗口内的列（池），旧路径为全曲
-          const c=el('div','pc'+(s%SPB()===0?' bar':(s%beatSteps()===0?' beat':'')));
-          c.dataset.ti=ti;c.dataset.r=r;c.dataset.s=s;
-          row.appendChild(c);
+          row.appendChild(makeCell(ti,r,s)); // 走统一建格路径：缓存 _s/_ti/_r，状态一次算好
         }
         body.appendChild(row);
       }
