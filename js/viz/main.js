@@ -9,8 +9,12 @@ import { proj, loadProject, showEmpty, hideEmpty, describe, info, makeDemoProjec
 import { renderProject, diagnoseRender, analyzeNodes, exportProjectJson, cancelRender, isRendering } from './audio.js';
 import * as transport from './transport.js';
 import { register, list, select, current, setSurface, setUI } from './registry.js';
+import { createFeatures } from './features.js';   // FEAT-V2/T1：频域特征/节拍提取（纯计算，无 DOM）
 /* 渲染器自注册：该模块顶层调用 registry.register()，不再形成循环导入 */
 import './renderers/waveform.js';
+import './renderers/spectrogram.js';
+import './renderers/ecg.js';
+import './renderers/radar.js';
 
 /* ---------- DOM 句柄 ---------- */
 const stage=$('#vzStage'), cv=$('#vzCanvas'), overlay=$('#vzOverlay'), cardBody=$('#vzCardBody');
@@ -87,6 +91,24 @@ function renderParams(){
       cb.checked=!!paramValue(name,s);
       cb.addEventListener('change',()=>{ setParamValue(name,cb.checked); markDirty() });
       lab.appendChild(cb);
+    }else if(s.type==='select'&&Array.isArray(s.options)){
+      /* 下拉参数（T2.2）：options 为二维数组 [[value,label],...]；值是字符串，
+         不能走 paramValue()（那是给数值滑块用的，会把 'rainbow' 变 NaN），所以这里直接读 values 原值。
+         样式复用 viz.css 的 .vz-select（顶部渲染器/渲染长度下拉同款），不新增 CSS。 */
+      const sel=document.createElement('select');
+      sel.className='vz-select';
+      sel.title=s.label||name;
+      const raw=(r&&r.values&&r.values[name]!=null)?r.values[name]:s.def;
+      for(let i=0;i<s.options.length;i++){
+        const op=s.options[i]; if(!op)continue;
+        const o=document.createElement('option');
+        o.value=String(op[0]);
+        o.textContent=String(op[1]==null?op[0]:op[1]);
+        sel.appendChild(o);
+      }
+      sel.value=String(raw);
+      sel.addEventListener('change',()=>{ setParamValue(name,sel.value); markDirty() });
+      lab.appendChild(sel);
     }else{
       const inp=document.createElement('input');
       inp.type='range'; inp.className='vz-pRange';
@@ -265,6 +287,9 @@ function boot(){
   bindLengthUI();
   setUI({renderParams});                   // 注入参数面板钩子（registry 不依赖 DOM）
   renderPicker();                          // 用注册表填充渲染器下拉
+  /* 渲染器切换：V1 只有一项下拉时漏了这条监听，导致选中项改了却不换渲染器。
+     select() 内部完成 dispose → init → 参数面板重建，主循环每帧重读 current()，下一帧即生效。 */
+  if(pick)pick.addEventListener('change',()=>select(pick.value));
   {
     const all=list();
     if(all.length&&!current())select(all[0].id);
@@ -340,10 +365,13 @@ function drawEmpty(){
   ctx.beginPath();ctx.moveTo(0,Math.round(h/2)+.5);ctx.lineTo(w,Math.round(h/2)+.5);ctx.stroke();
   ctx.restore();
 }
-let frames=0,fpsT=0,raf=0;
+let frames=0,fpsT=0,raf=0,lastTs=0;      // lastTs：上一帧时间戳，用于算 dt（特征节流/EMA）
 /* 子任务 5：共享 analyser 数据管线——每帧只取一次时域数据，复用同一个 Uint8Array，绝不在帧内分配对象 */
-const audioData={timeDomain:null};        // 传给渲染器 draw(ctx,view,audio) 的第三参数
-let tdBuf=null, tdSize=0, tdAnalyser=null;
+/* FEAT-V2/T1：同一管线再扩一路频域 + 特征（缓冲与 tdBuf 同生命周期，帧内仍零分配）
+   第三参数契约：{timeDomain, freqData, features, beat, dt, frameNo}；V1 波形只读 timeDomain，不受影响 */
+const feats=createFeatures();             // 常驻实例：snapshot/beat 的对象引用自创建起不变
+const audioData={timeDomain:null,freqData:null,features:feats.snapshot,beat:feats.beat,dt:0,frameNo:0,projectBpm:0};
+let tdBuf=null, fdBuf=null, tdSize=0, tdAnalyser=null;
 function frame(ts){
   raf=requestAnimationFrame(frame);
   if(!ctx)return;
@@ -352,15 +380,23 @@ function frame(ts){
     if(hintTimer>0&&ts>=hintTimer){ hintTimer=0; if(hint&&!hint.dataset.busy)onState(transport.state()) }
   }
   const an=transport.getAnalyser();
+  const dt=clamp((ts-lastTs)/1000,0,.25); lastTs=ts;   // 帧间隔（秒），封顶 0.25s
   if(an){
     if(an!==tdAnalyser||tdSize!==an.fftSize){   // 仅当 analyser 或 fftSize 变化时重建缓冲
       tdAnalyser=an; tdSize=an.fftSize;
       tdBuf=new Uint8Array(tdSize);
-      audioData.timeDomain=tdBuf;
+      fdBuf=new Uint8Array(an.frequencyBinCount);            // 1024 频点，与 tdBuf 同生命周期
+      audioData.timeDomain=tdBuf; audioData.freqData=fdBuf;
     }
     an.getByteTimeDomainData(tdBuf);           // 复用同一实例，无每帧分配
+    an.getByteFrequencyData(fdBuf);
+    audioData.projectBpm=(proj&&proj.bpm>=40&&proj.bpm<=220)?proj.bpm:0;   // 工程 BPM：心率读数优先用它
+    feats.update(fdBuf,dt,audioData.projectBpm);   // 频域 → 包络/起音/特征快照（内部零分配）
+    audioData.dt=dt; audioData.frameNo++;
   }else if(audioData.timeDomain){
-    audioData.timeDomain=null; tdBuf=null; tdAnalyser=null; tdSize=0;
+    audioData.timeDomain=null; audioData.freqData=null; audioData.dt=0; audioData.frameNo=0;
+    tdBuf=null; fdBuf=null; tdAnalyser=null; tdSize=0;
+    feats.reset();                             // 保持 snapshot/beat 对象引用不变，只清零字段
   }
   if(current()&&current().draw)current().draw(ctx,view,an?audioData:null);
   else drawEmpty();
@@ -379,6 +415,7 @@ window.__vz={view,list,current,select,register,data:dataMod,transport,registry:{
   get dataOk(){return dataOk},
   get rendering(){return rendering},
   get audioBusy(){return isRendering()},
+  get audio(){return audioData},              // 自检：freqData 长度 / features / beat / dt / frameNo
   cancelRender,
   fmtTime,
   /* 播放链路的可验证证据：AudioContext 状态、输出节点、缓冲峰值/RMS、Analyser 参数 */

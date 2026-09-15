@@ -4,9 +4,12 @@
    这里只做注册与切换，不碰 DOM：参数面板/重绘由 ui 钩子注入，保持无 DOM 依赖。
 
    契约：{id, label, params, init(ctx,view), draw(ctx,view,audio), resize(ctx,view), dispose(ctx,view)}
-   - params：{name:{type:'range'|'toggle', min, max, step, def, label, fixed}}，供底部参数面板动态生成；
-     渲染器把当前值存在自身 params[name] 上（就地写回）。
-   - draw 的第三参 audio = {timeDomain: Uint8Array(fftSize)}，由入口的 rAF 主循环每帧填充一次并复用。 */
+   - params：{name:{type:'range'|'toggle', min, max, step, def, label, fixed}}，是**纯声明**（只描述控件）；
+     当前值存在渲染器自身的 values 上（缺省回落 def）。参数面板只读 values，绝不写回 params。
+   - draw 的第三参 audio = {timeDomain:Uint8Array(fftSize), freqData:Uint8Array(frequencyBinCount),
+     features:{t,energy,brightness,frames}, beat:{env,onset,strength,since,count,bpm}, dt, frameNo}，
+     由入口的 rAF 主循环每帧填充一次并复用同一实例；features/beat 为常驻对象（字段原地更新），
+     无 analyser 时整个第三参为 null。缓存类渲染器请用 audio.frameNo 判断"是否是新一帧"。 */
 
 const renderers=[];
 let cur=null,_ctx=null,_view=null;
