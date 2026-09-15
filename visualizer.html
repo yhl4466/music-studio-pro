@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音乐可视化 · 智能音乐工坊 PRO</title>
+<link rel="stylesheet" href="./css/theme.css">
+<link rel="stylesheet" href="./css/viz.css">
+<link rel="icon" href="./assets/favicon.svg">
+<!-- 主题在解析阶段就写入 documentElement，避免模块加载前的配色闪烁（只读 mpTheme，不写） -->
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('mpTheme')||'studio'}catch(e){document.documentElement.dataset.theme='studio'}</script>
+<script type="module" src="./js/viz/main.js"></script>
+</head>
+<body>
+
+<header class="vz-top">
+  <a class="vz-back" id="vzBack" href="./index.html"><span class="vz-ico" aria-hidden="true">&#8249;</span>返回主应用</a>
+  <div class="vz-sep"></div>
+  <button class="vz-play" id="vzPlay" title="播放 / 暂停 (空格)" disabled>
+    <svg id="vzPlayIco" class="vz-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+    <svg id="vzPauseIco" class="vz-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="display:none"><rect x="7" y="5" width="3.6" height="14" rx="1.2"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.2"/></svg>
+    <span class="vz-sr" id="vzPlayTxt">播放</span>
+  </button>
+  <button class="vz-play" id="vzStop" title="停止并回到开头" disabled>
+    <svg class="vz-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="1.8"/></svg>
+    <span class="vz-sr">停止</span>
+  </button>
+  <button class="vz-cancel" id="vzCancel" title="取消正在进行的离线渲染" disabled>取消</button>
+  <div class="vz-pos">
+    <div class="vz-posMain" id="vzPosMain">0:00</div>
+    <div class="vz-posSub" id="vzPosSub">未载入工程</div>
+  </div>
+  <input class="vz-range" id="vzSeek" type="range" min="0" max="1000" value="0" step="1" aria-label="播放进度" disabled>
+  <span class="vz-time" id="vzTime">0:00 / 0:00</span>
+  <div class="vz-sep"></div>
+  <label class="vz-lab">渲染器
+    <select class="vz-select" id="vzPick" aria-label="渲染器切换">
+      <option value="waveform">实时波形</option>
+    </select>
+  </label>
+  <label class="vz-lab">渲染长度
+    <select class="vz-select" id="vzLen" aria-label="预渲染长度">
+      <option value="30" selected>30 秒</option>
+      <option value="60">60 秒</option>
+      <option value="90">90 秒</option>
+      <option value="full">全曲</option>
+    </select>
+  </label>
+</header>
+
+<main class="vz-stage" id="vzStage">
+  <canvas class="vz-canvas" id="vzCanvas"></canvas>
+  <div class="vz-overlay" id="vzOverlay">
+    <div class="vz-card">
+      <div class="vz-cardT"><span class="vz-ico" aria-hidden="true">&#9670;</span>音乐可视化</div>
+      <div class="vz-cardB" id="vzCardBody">正在初始化…</div>
+    </div>
+  </div>
+  <div class="vz-fps" id="vzFps">-- FPS</div>
+</main>
+
+<footer class="vz-bottom">
+  <div class="vz-bar">
+    <span class="vz-hint" id="vzHint">V1 步骤 2/7：正在初始化数据层…</span>
+    <span class="vz-spacer"></span>
+    <span class="vz-lab" id="vzRenderLab">预渲染</span>
+    <div class="vz-prog" id="vzRenderBar"><i id="vzRenderFill"></i></div>
+  </div>
+  <div class="vz-params" id="vzParams"></div>
+</footer>
+
+</body>
+</html>

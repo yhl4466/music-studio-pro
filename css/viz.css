@@ -1,0 +1,132 @@
+/* [viz.css] visualizer.html 专用样式：只放可视化页面的骨架布局。
+   配色一律走 css/theme.css 的变量（--bg0/--card/--txt/--mut/--line/--acc/--grad/--well/--r/--mono…），
+   两页共用 6 套 data-theme，因此这里不定义任何颜色字面量与新的 CSS 变量名。 */
+
+html,body{height:100%;margin:0}
+body{
+  background:
+    radial-gradient(1200px 700px at 18% -10%,var(--bg2),transparent 60%),
+    radial-gradient(900px 600px at 110% 10%,var(--bg1),transparent 55%),
+    var(--bg0);
+  color:var(--txt);
+  display:flex;flex-direction:column;overflow:hidden;
+  font:14px/1.45 system-ui,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;
+}
+
+/* ---------- 顶部控制条 ---------- */
+.vz-top{
+  flex:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 14px;background:var(--glass);
+  -webkit-backdrop-filter:blur(var(--glass-blur));backdrop-filter:blur(var(--glass-blur));
+  border-bottom:1px solid var(--line);
+}
+.vz-sep{width:1px;height:24px;background:var(--line2);flex:none}
+.vz-spacer{flex:1;min-width:8px}
+/* 图标：一律用几何符号/内联 SVG，不用 emoji（Windows 下部分 emoji 会渲染成方块） */
+.vz-ico{color:var(--acc);margin-right:5px;font-size:12px;line-height:1}
+.vz-svg{width:19px;height:19px;display:block;pointer-events:none}
+.vz-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+.vz-back{
+  display:inline-flex;align-items:center;gap:6px;flex:none;
+  padding:7px 12px;border:1px solid var(--line2);border-radius:var(--r-sm);
+  background:var(--ctl-bg);color:var(--txt);text-decoration:none;
+  font-size:13px;white-space:nowrap;transition:.16s;
+}
+.vz-back:hover{background:var(--hover);border-color:var(--acc);color:var(--on-txt)}
+
+.vz-play{
+  width:42px;height:38px;flex:none;cursor:pointer;
+  border:1px solid var(--line2);border-radius:var(--r-sm);
+  background:var(--ctl-bg);color:var(--acc);font-size:15px;line-height:1;
+  display:inline-flex;align-items:center;justify-content:center;transition:.16s;
+}
+.vz-play:hover:not(:disabled){background:var(--hover);border-color:var(--acc)}
+.vz-play.on{background:var(--grad);border-color:transparent;color:var(--on-acc)}
+.vz-play:disabled{opacity:.45;cursor:not-allowed}
+
+.vz-cancel{
+  flex:none;padding:8px 12px;cursor:pointer;font-size:12px;
+  border:1px solid var(--line2);border-radius:var(--r-sm);
+  background:var(--ctl-bg);color:var(--mut);transition:.16s;
+}
+.vz-cancel:hover:not(:disabled){background:var(--hover);border-color:var(--bad);color:var(--txt)}
+.vz-cancel:disabled{opacity:.45;cursor:not-allowed}
+
+.vz-pos{flex:none;min-width:104px;display:flex;flex-direction:column;justify-content:center}
+.vz-posMain{font-family:var(--mono);font-size:17px;font-weight:700;letter-spacing:.5px;line-height:1.1}
+.vz-posSub{font-size:11px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.vz-range{flex:1;min-width:160px;height:22px;-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}
+.vz-range:disabled{cursor:not-allowed;opacity:.55}
+.vz-range::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:var(--well);border:1px solid var(--line)}
+.vz-range::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-5px;border-radius:50%;background:var(--acc);border:2px solid var(--bg0)}
+.vz-range::-moz-range-track{height:6px;border-radius:3px;background:var(--well);border:1px solid var(--line)}
+.vz-range::-moz-range-thumb{width:12px;height:12px;border:2px solid var(--bg0);border-radius:50%;background:var(--acc)}
+
+.vz-time{flex:none;font-family:var(--mono);font-size:12px;color:var(--mut);min-width:96px;text-align:right}
+
+.vz-lab{flex:none;font-size:12px;color:var(--mut)}
+/* 渲染器下拉：label 与 select 同排（嵌套 label 只为无障碍，不引入 for 属性） */
+label.vz-lab{display:inline-flex;align-items:center;gap:8px}
+label.vz-lab>.vz-select{font-size:13px}
+.vz-select{
+  flex:none;padding:7px 10px;border-radius:var(--r-sm);
+  border:1px solid var(--line2);background:var(--ctl-bg);color:var(--txt);
+  font-size:13px;cursor:pointer;
+}
+.vz-select:hover{border-color:var(--acc)}
+
+/* ---------- 中间舞台（canvas 自适应） ---------- */
+.vz-stage{flex:1;min-height:0;position:relative;overflow:hidden}
+.vz-canvas{display:block;width:100%;height:100%}
+
+.vz-overlay{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  padding:20px;pointer-events:none;
+}
+.vz-overlay.off{display:none}
+.vz-card{
+  max-width:520px;text-align:center;pointer-events:auto;
+  padding:22px 26px;border:1px solid var(--line2);border-radius:var(--r);
+  background:var(--card);box-shadow:0 10px 40px rgba(0,0,0,.35);
+}
+.vz-cardT{font-size:17px;font-weight:700;margin-bottom:8px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.vz-cardB{font-size:13px;color:var(--mut)}
+.vz-cardP{margin:0 0 6px}
+.vz-cardMeta{margin:0 0 14px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.vz-cardLink{
+  display:inline-block;margin-top:2px;padding:8px 16px;
+  border:1px solid var(--line2);border-radius:var(--r-sm);
+  background:var(--ctl-bg);color:var(--acc);text-decoration:none;font-size:13px;transition:.16s;
+}
+.vz-cardLink:hover{background:var(--hover);border-color:var(--acc);color:var(--on-txt)}
+
+.vz-fps{
+  position:absolute;right:10px;bottom:8px;pointer-events:none;
+  font-family:var(--mono);font-size:11px;color:var(--dim);
+}
+
+/* ---------- 底部参数面板 ---------- */
+.vz-bottom{
+  flex:none;background:var(--glass);
+  -webkit-backdrop-filter:blur(var(--glass-blur));backdrop-filter:blur(var(--glass-blur));
+  border-top:1px solid var(--line);
+}
+.vz-bar{display:flex;align-items:center;gap:10px;padding:8px 14px}
+.vz-hint{font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vz-prog{width:150px;height:8px;flex:none;border-radius:4px;background:var(--well);border:1px solid var(--line);overflow:hidden}
+.vz-prog>i{display:block;height:100%;width:0;background:var(--grad);transition:width .18s}
+
+.vz-params{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:0 14px 10px}
+.vz-params:empty{display:none}
+/* 参数面板控件（由渲染器的 params 声明动态生成） */
+.vz-p{display:inline-flex;align-items:center;gap:8px;flex:none;font-size:12px;color:var(--mut)}
+.vz-pLabel{white-space:nowrap}
+.vz-pVal{font-family:var(--mono);font-size:11px;color:var(--dim);min-width:34px;text-align:right}
+.vz-pRange{width:110px;height:20px;-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}
+.vz-pRange::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:var(--well);border:1px solid var(--line)}
+.vz-pRange::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-5px;border-radius:50%;background:var(--acc);border:2px solid var(--bg0)}
+.vz-pRange::-moz-range-track{height:4px;border-radius:2px;background:var(--well);border:1px solid var(--line)}
+.vz-pRange::-moz-range-thumb{width:10px;height:10px;border:2px solid var(--bg0);border-radius:50%;background:var(--acc)}
+.vz-pCheck{width:14px;height:14px;accent-color:var(--acc);cursor:pointer}

@@ -10,6 +10,7 @@ import { setTab, renderInspector } from './ui/sidebar.js';
 import { structural, paintAll, relabelRows } from './ui/timeline.js';
 import { beginEdit, commitEdit, refreshUndoUI, markDirtyUI, loadAutosave } from './io/project.js';
 import { loadShareFromHash } from './io/share.js';
+import { bindVizLink } from './ui/vizlink.js';
 
 /* 顶层错误上报（原 index.html 顶层） */
 window.addEventListener('error',e=>showErr(e.message||'未知错误'));
@@ -30,6 +31,7 @@ async function boot(){
   bindTopControls();
   bindTheme();
   bindExtras();
+  bindVizLink();
   renderPiano();
   const demo=(location.hash==='#demo'); // #demo：跳过存档/分享链接，强制载入示例工程
   let had=false,shared=false;
