@@ -45,7 +45,6 @@ export function cancelRender(){
   if(!_busy)return false;
   _cancelFlag=true;
   while(_cancelWaiters.length){ try{ _cancelWaiters.shift()() }catch(e){} }
-  console.log('[viz-render] cancel 请求已发出（后台渲染可能仍在进行，结果将被丢弃）');
   return true;
 }
 
@@ -128,8 +127,7 @@ export function analyzeNodes(proj){
   const sum=byTrack.reduce((a,b)=>a+b.小计,0);
   const fixed=5;                                  // 主总线：master/delay/fb/lp/wet（已无 convolver/comp）
   const out={音符总数:notesTotal,tracks:proj.tracks?proj.tracks.length:0,预计节点总数:sum+fixed,每轨:byTrack};
-  console.log('[viz-diag] 节点预测：音符总数='+notesTotal+' 预计节点总数≈'+(sum+fixed),byTrack);
-  return out;
+  return out;                                      // 诊断数据由返回值交付（T6：不再打印）
 }
 /** 诊断：导出工程 JSON（供在 Node 桩里复现） */
 export function exportProjectJson(proj){
@@ -155,7 +153,7 @@ export async function renderProject(proj,onProgress,opts={}){
   const t0=now();
   const cap=capOf(opts);
 
-  if(_busy){ console.log('[viz-render] 已有渲染在进行，拒绝并发请求'); return {status:'busy',message:'已有渲染在进行'} }
+  if(_busy)return {status:'busy',message:'已有渲染在进行'}
   if(!proj||!Array.isArray(proj.tracks)||!proj.tracks.length)return {status:'error',message:'工程里没有音轨'};
 
   _busy=true; _cancelFlag=false;
@@ -176,11 +174,9 @@ export async function renderProject(proj,onProgress,opts={}){
   try{
     setProj(proj);                                   // fireStep / stepDurNow 读 core/state.js 的全局 proj
     prog(0,PRE_MSGS[0]);
-    console.log('[viz-render] start','steps='+proj.steps,'bpm='+proj.bpm,'tracks='+proj.tracks.length,'maxSeconds='+(cap==null?'全曲':cap));
 
     if(isTooLong(proj,opts)){
       const e=estFor(proj,null);
-      console.log('[viz-render] tooLong',Math.round(e.full)+'s /',Math.round(e.bytes/1048576)+'MB');
       return {status:'tooLong',estimate:e,seconds:e.full,bytes:Math.ceil(e.full*BYTES_PER_SEC)};
     }
 
@@ -192,13 +188,12 @@ export async function renderProject(proj,onProgress,opts={}){
 
     const frames=Math.max(1,Math.ceil(est.seconds*SAMPLE_RATE));
     if(frames*CHANNELS*4>MAX_BYTES){
-      console.log('[viz-render] error','缓冲超过上限');
       return {status:'tooLong',estimate:est,seconds:est.seconds,bytes:frames*CHANNELS*4};
     }
 
     const OAC=(typeof OfflineAudioContext!=='undefined')?OfflineAudioContext
              :(typeof webkitOfflineAudioContext!=='undefined'?webkitOfflineAudioContext:null);
-    if(!OAC){ console.log('[viz-render] error','当前浏览器不支持 OfflineAudioContext'); return {status:'error',message:'当前浏览器不支持 OfflineAudioContext'} };
+    if(!OAC){ console.error('[viz-render] 当前浏览器不支持 OfflineAudioContext'); return {status:'error',message:'当前浏览器不支持 OfflineAudioContext'} };
 
     off=new OAC(CHANNELS,frames,SAMPLE_RATE);
     G=buildOfflineGraph(off);                        // 无 ConvolverNode / 无 IR
@@ -223,7 +218,7 @@ export async function renderProject(proj,onProgress,opts={}){
     prog(OFF,'编写音符 0/'+Sched+' 步...');
     const schedT0=now();
     for(let s=0;s<Sched;s++){
-      if(_cancelFlag){ console.log('[viz-render] cancelled during scheduling at step',s); discard(); return {status:'cancelled'} }
+      if(_cancelFlag){ discard(); return {status:'cancelled'} }
       const nom=s*dur;
       const t=nom+((s%2===1&&sw>0)?dur*sw*.5:0);
       fireStep(s,t,off,G.master,nom);                // dest 必须传 G.master，否则延迟 send 不生效
@@ -236,7 +231,6 @@ export async function renderProject(proj,onProgress,opts={}){
       }
     }
     const schedMs=Math.round(now()-schedT0);
-    console.log('[viz-render] scheduled',Sched,'/',S,'步 ·',notes,'音符 ·',schedMs+'ms');
 
     /* 渲染阶段：OfflineAudioContext 无法回报真实进度，改用时间估算驱动（每帧约两次 2D 空调用，开销可忽略）。
        estDuration = 音频时长 × 1.5（实测约 1.4× 实时，1.5 保守），封顶 95%，渲染真正结束才跳 100%。 */
@@ -248,8 +242,6 @@ export async function renderProject(proj,onProgress,opts={}){
       return frac;
     };
     prog(rendPct(0),'生成音频中... 预计还需 '+Math.ceil(estDuration)+' 秒');
-    console.log('[viz-render] rendering...',frames,'帧',SAMPLE_RATE,'Hz（无卷积混响）',
-                '预计渲染时长≈'+estDuration.toFixed(1)+'s（按 1.5× 实时估算）');
     renderStarted=true;
     const renderT0=now();
     const tickTimer=setInterval(()=>{
@@ -264,26 +256,22 @@ export async function renderProject(proj,onProgress,opts={}){
     if(tickTimer)clearInterval(tickTimer);
     const renderMs=Math.round(now()-renderT0);
     if(!res.done||_cancelFlag){
-      console.log('[viz-render] 已取消：放弃该上下文的结果（渲染可能仍在后台进行）','renderMs='+renderMs);
       discard();
       return {status:'cancelled'};
     }
     if(res.err)throw res.err;
     const buf=res.val;
-    console.log('[viz-render] done',buf?buf.length:'null','startRendering 实测耗时='+renderMs+'ms',
-                '（音频 '+est.seconds.toFixed(1)+'s，'+(renderMs/1000/Math.max(.001,est.seconds)).toFixed(2)+'× 实时；估算 '+estDuration.toFixed(1)+'s）');
-    if(!buf||!buf.length){ console.log('[viz-render] error','离线渲染结果为空'); return {status:'error',message:'离线渲染结果为空'} };
+    if(!buf||!buf.length){ console.error('[viz-render] 离线渲染结果为空'); return {status:'error',message:'离线渲染结果为空'} };
     prog(100,est.partial?('预渲染完成（仅前 '+Math.round(est.seconds)+' 秒）'):'预渲染完成');
     return {status:'ok',buffer:buf,seconds:est.seconds,samples:buf.length,notes,
             partial:!!est.partial,cappedTo:est.cappedTo,elapsed:now()-t0,renderMs,estRenderMs:Math.round(estDuration*1000),
             scheduledSteps:Sched,schedMs};
   }catch(e){
-    console.log('[viz-render] error',e);
+    console.error('[viz-render] 渲染失败',e);
     return {status:'error',message:(e&&e.message)?e.message:String(e)};
   }finally{
     try{ if(proj)proj._ev=null }catch(e){}
     _busy=false; _activeCtl=null; _cancelFlag=false;
-    console.log('[viz-render] cleanup');
   }
 }
 
@@ -295,26 +283,22 @@ export function fmtSec(sec){
 
 /* =========================================================================
    诊断：__vz.diagnose() 的阶梯——严格串行，每档确认上一档真正结束
+   T6 起不再打印任何日志：诊断数据全部由返回值交付（Console 里直接看 __vz.diagnose() 的结果），
+   需要逐档实时观察时由调用方传 onStep 回调自行处理。
    ========================================================================= */
 export async function diagnoseRender(proj,onStep){
   const out={ladder:[],est:null};
-  console.log('===== [viz-diag] 诊断开始（串行阶梯） =====');
   const est=estimate(proj,{});
   out.est={seconds:est.seconds,bytes:est.bytes,bars:est.bars,steps:est.steps};
-  console.log('[viz-diag] 工程:',proj.name,'steps='+proj.steps,'bpm='+proj.bpm,'tracks='+proj.tracks.length,
-              '预计音频='+est.seconds.toFixed(1)+'s');
   for(const sec of [1,5,10,30,60]){
     if(sec>est.seconds+1)break;
     const t0=Date.now();
     const r=await renderProject(proj,()=>{}, {maxSeconds:sec});
     const ms=Date.now()-t0;
     out.ladder.push({sec,status:r.status,ms,renderMs:r.renderMs||0,scheduledSteps:r.scheduledSteps||0});
-    console.log('[viz-diag] 阶梯 seconds='+sec+' → status='+r.status+' 墙钟='+ms+'ms'+
-                ' 渲染='+(r.renderMs||0)+'ms 排期步数='+(r.scheduledSteps||0));
     if(onStep)try{ onStep(out.ladder[out.ladder.length-1]) }catch(e){}
-    if(r.status!=='ok'){ console.log('[viz-diag] 阶梯在 '+sec+' 秒档中断：'+(r.message||r.status)); break }
+    if(r.status!=='ok'){ out.stoppedAt={sec,status:r.status,message:r.message||r.status}; break }
     await new Promise(res=>setTimeout(res,120));     // 串行间隔，确保上一档彻底收尾
   }
-  console.log('===== [viz-diag] 诊断结束 =====',out);
   return out;
 }

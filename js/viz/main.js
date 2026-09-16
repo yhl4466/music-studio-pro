@@ -6,10 +6,12 @@
 import { $, clamp } from '../core/util.js';
 import * as dataMod from './data.js';
 import { proj, loadProject, showEmpty, hideEmpty, describe, info, makeDemoProject } from './data.js';
-import { renderProject, diagnoseRender, analyzeNodes, exportProjectJson, cancelRender, isRendering } from './audio.js';
+import { renderProject, diagnoseRender, analyzeNodes, exportProjectJson, cancelRender, isRendering, estimate } from './audio.js';
 import * as transport from './transport.js';
 import { register, list, select, current, setSurface, setUI } from './registry.js';
 import { createFeatures } from './features.js';   // FEAT-V2/T1：频域特征/节拍提取（纯计算，无 DOM）
+import { analyze } from './analyzer.js';          // FEAT-V4/T2：整曲离线分析（V4 封面/指纹的数据源，纯计算）
+import { bindCoverUI, invalidateCoverFeatures } from './coverUI.js';  // FEAT-V4/T3.5：封面预览弹窗（只画图与下载，无业务逻辑）
 /* 渲染器自注册：该模块顶层调用 registry.register()，不再形成循环导入 */
 import './renderers/waveform.js';
 import './renderers/spectrogram.js';
@@ -196,7 +198,9 @@ transport.onTimeUpdate(onTime);
 
 /* ---------- 预渲染 → 载入 transport（重试按钮在渲染期间充当“取消”） ---------- */
 let rendering=false, renderCtl=null;
-function setBusyUI(on){
+/** 渲染/分析期间锁定播放控件。
+    label 可选：分析阶段把同一个取消按钮改叫“取消分析”（T5 之前不新增任何控件）。 */
+function setBusyUI(on,label){
   rendering=on;
   if(hint){ if(on)hint.dataset.busy='1'; else delete hint.dataset.busy }
   if(playBtn)playBtn.disabled=true;              // 渲染期间不可播放
@@ -204,15 +208,14 @@ function setBusyUI(on){
   if(seek)seek.disabled=true;
   if(cancelBtn){
     cancelBtn.disabled=!on;
-    cancelBtn.textContent=on?'取消渲染':'取消';
-    cancelBtn.title=on?'取消正在进行的离线渲染':'没有正在进行的渲染';
+    cancelBtn.textContent=on?(label||'取消渲染'):'取消';
+    cancelBtn.title=on?'取消正在进行的离线渲染或分析':'没有正在进行的渲染或分析';
   }
 }
 async function renderAndLoad(p,opts){
   if(rendering)return {status:'busy',message:'正在渲染中'};
   setBusyUI(true);
   setBar(0,'0%');
-  console.log('[viz-main] auto-render start','steps='+(p&&p.steps),'bpm='+(p&&p.bpm),'tracks='+(p&&p.tracks&&p.tracks.length));
   try{
     const o=Object.assign({},opts||{},{onController:c=>{ renderCtl=c }});
     /* onProgress 签名仍是 (pct,text)：进度条按 pct 推进，提示行与进度条标签同步显示文字 */
@@ -222,11 +225,11 @@ async function renderAndLoad(p,opts){
       if(renderLab)renderLab.textContent=p.toFixed(0)+'%';
       if(hint)hint.textContent=text||'';
     },o);
-    console.log('[viz-main] auto-render done',r&&r.status,r&&r.notes,r&&r.seconds,r&&r.message);
     if(r&&r.status==='ok'){
       setBarDone();
       transport.dispose();              // 丢弃旧图与旧 buffer，保证计时从新 AudioContext 起算
       transport.load(r.buffer);
+      invalidateCoverFeatures();        // FEAT-V4/T5：音频换了（换工程/换渲染长度/全曲重渲染）→ 封面/指纹的特征缓存作废
       onState('idle');
       setHintInfo('预渲染完成 · notes='+r.notes+' · 音频 '+r.seconds.toFixed(1)+' 秒'+
                   (r.partial?('（仅前 '+Math.round(r.seconds)+' 秒，可在顶部「渲染长度」切换）'):'')+
@@ -249,11 +252,104 @@ async function renderAndLoad(p,opts){
   }
 }
 
+/* ---------- FEAT-V4 / T2：整曲分析入口（T3 专辑封面 / T4 音乐指纹的数据源） ----------
+   两条既有约束必须照顾：
+   1) renderProject 是模块级串行锁，且 renderAndLoad 内部会 transport.dispose()+load() 换掉播放缓冲，
+      所以重渲染前先 transport.pause()，并接受“播放位置归零”（V4 方案第 7 节的取舍）。
+   2) 进度不新增控件：渲染阶段由 renderAndLoad 写 #vzRenderBar/#vzHint，分析阶段由本函数写，两段各自 0→100%。
+   数据来源判定：transport 里只有“已渲染的 N 秒”，默认渲染长度就是 30 秒，短于整曲时必须问用户是否全曲重渲染，
+   否则 72 秒的工程永远只分析到前 30 秒。 */
+let analyzing=false, analyzeCtl=null, lastFeatures=null;
+/** 进度：与 audio.js 的 onProgress(pct,text) 对齐，写进度条与提示行（setBar 会清空提示行，故随后补写） */
+function paintAnalyzeProgress(pct,text){
+  setBar(pct,Math.round(clamp(Number(pct)||0,0,100))+'%');
+  if(hint)hint.textContent=text||'';
+}
+/**
+ * 整曲分析入口。
+ * @param {{forceFull?:boolean}} [opts] forceFull=true 时不弹确认框、直接全曲重渲染
+ *        （封面/指纹这类"整曲肖像"用途：只渲染前 30 秒没有意义，见 T3.5 修复 2）
+ */
+async function analyzeProject(opts={}){
+  if(analyzing){ if(hint)hint.textContent='分析正在进行中…'; return null }
+  if(!dataOk||!proj||!Array.isArray(proj.tracks)||!proj.tracks.length){
+    if(hint)hint.textContent='没有可分析的工程';
+    return null;
+  }
+  const forceFull=!!(opts&&opts.forceFull);
+  const est=estimate(proj,{});
+  let buf=transport.getBuffer();
+  const have=buf?transport.getDuration():0;
+  let partial=false;
+
+  if(!buf||have<est.full-0.5){
+    const msg=(buf
+      ?'当前只渲染了前 '+have.toFixed(1)+' 秒（全曲约 '+est.full.toFixed(1)+' 秒）。\n\n是否重新渲染整曲后再分析？'
+      :'还没有可用的音频。\n\n是否渲染整曲后再分析？')
+      +'\n（重新渲染会重新生成音频，播放位置归零）';
+    let doRender=false;
+    if(forceFull)doRender=true;                       // 整曲肖像用途：静默全曲重渲染，不打扰用户
+    else if(window.confirm(msg))doRender=true;
+    if(doRender){
+      transport.pause();
+      const r=await renderAndLoad(proj,{maxSeconds:null});
+      if(!r||r.status!=='ok'){
+        if(hint)hint.textContent='全曲渲染未完成，已取消分析'+(r&&r.message?('：'+r.message):'');
+        return null;
+      }
+      buf=transport.getBuffer();
+      if(!buf){ if(hint)hint.textContent='全曲渲染没有产出音频，已取消分析'; return null }
+    }else if(!buf){
+      if(hint)hint.textContent='已取消：没有可用音频';
+      return null;
+    }else{
+      partial=true;                      // 用户选择用现有的一段
+    }
+  }
+
+  analyzing=true;
+  analyzeCtl=(typeof AbortController!=='undefined')?new AbortController():null;
+  setBusyUI(true,'取消分析');
+  const t0=(typeof performance!=='undefined'?performance.now():Date.now());
+  try{
+    const feat=await analyze(buf,proj,{
+      signal:analyzeCtl?analyzeCtl.signal:undefined,
+      onProgress:(pct,text)=>paintAnalyzeProgress(pct,text)
+    });
+    if(!feat){                              // 被取消（analyzer 约定：取消返回 null）
+      setBar(0,'已取消');
+      setHintInfo('分析已取消（工程与播放器状态不变）',2500);
+      return null;
+    }
+    lastFeatures=feat;
+    const ms=Math.round((typeof performance!=='undefined'?performance.now():Date.now())-t0);
+    setBarDone();
+    setHintInfo('分析完成 · '+feat.duration.toFixed(1)+' 秒'+(partial?'（仅已渲染部分）':'')+
+                ' · 起音 '+feat.onsets.length+' · 段落 '+feat.segments.length+
+                ' · 调式 '+(feat.key?feat.key.name:'未推断')+
+                ' · 音符 '+feat.noteCount+' + 鼓点 '+feat.drumHits+
+                ' · 耗时 '+ms+' ms · 结果见 __vz.cover.last',5000);
+    return feat;
+  }catch(e){
+    setBar(0,'失败');
+    if(hint)hint.textContent='分析失败：'+((e&&e.message)||e);
+    console.error('[viz-cover] 分析失败',e);
+    return null;
+  }finally{
+    analyzing=false; analyzeCtl=null;
+    setBusyUI(false);
+    if(hint&&!hint.dataset.busy)onState(transport.state());
+  }
+}
+
 /* ---------- UI 接线 ---------- */
 function bindTransportUI(){
   if(playBtn)playBtn.addEventListener('click',()=>{ transport.toggle(); if(posMain)posMain.textContent=fmtTime(transport.getCurrentTime()) });
   if(stopBtn)stopBtn.addEventListener('click',()=>transport.stop());
-  if(cancelBtn)cancelBtn.addEventListener('click',()=>{ cancelRender() });
+  if(cancelBtn)cancelBtn.addEventListener('click',()=>{
+    if(analyzing&&analyzeCtl){ analyzeCtl.abort(); return }   // 分析中：同一个按钮改作“取消分析”
+    cancelRender();
+  });
   if(seek){
     seek.min='0'; seek.max=String(SEEK_MAX); seek.step='1';
     seek.addEventListener('pointerdown',()=>{ seeking=true });
@@ -272,6 +368,13 @@ function bindTransportUI(){
     else if(e.code==='Escape'){ e.preventDefault(); transport.stop() }
   });
   window.addEventListener('pagehide',()=>transport.dispose());
+  /* FEAT-V4/T6：离开页面（例如点左上角"返回主应用"）时，如果正在渲染/分析就弹一次浏览器原生确认，
+     避免误点丢掉几分钟的渲染进度。只在真忙时打扰，空闲时完全不介入。 */
+  window.addEventListener('beforeunload',e=>{
+    if(!rendering&&!analyzing&&!isRendering())return;
+    e.preventDefault();
+    e.returnValue='';                 // 现代浏览器忽略自定义文案，用默认提示（"离开此网站？"）
+  });
 }
 
 /* ---------- 启动 ---------- */
@@ -288,6 +391,13 @@ function boot(){
   if(seek)seek.disabled=true;
   bindTransportUI();
   bindLengthUI();
+  /* FEAT-V4/T3.5：封面预览弹窗。用钩子把 T2 的分析入口注入，避免 main ⇄ coverUI 循环 import：
+     ensureFeatures 走完整流程（含全曲重渲染询问/进度/取消），getFeatures 让第二次点击直接复用结果。 */
+  bindCoverUI({
+    ensureFeatures:(o)=>analyzeProject(o),     // coverUI 会传 {forceFull:true}：封面强制整曲
+    getFeatures:()=>lastFeatures,
+    getTitle:()=>(proj&&proj.name)||'未命名工程'
+  });
   setUI({renderParams});                   // 注入参数面板钩子（registry 不依赖 DOM）
   renderPicker();                          // 用注册表填充渲染器下拉
   /* 渲染器切换：V1 只有一项下拉时漏了这条监听，导致选中项改了却不换渲染器。
@@ -421,6 +531,20 @@ window.__vz={view,list,current,select,register,data:dataMod,transport,registry:{
   get audio(){return audioData},              // 自检：freqData 长度 / features / beat / dt / frameNo
   cancelRender,
   fmtTime,
+  /* FEAT-V4/T2：整曲分析自检句柄（T3/T4 会在此基础上加封面/指纹）
+     - __vz.cover.analyze()：走完整流程（不足整曲时会弹 confirm 询问是否全曲重渲染）
+     - __vz.cover.last：最近一次成功的 FeatureObject
+     - __vz.cover.needRender：只看“是否必须重渲染”而不执行（便于先确认判定分支） */
+  cover:{
+    analyze:analyzeProject,
+    get last(){ return lastFeatures },
+    get busy(){ return analyzing },
+    get needRender(){
+      const est=estimate(proj,{});
+      const have=transport.getBuffer()?transport.getDuration():0;
+      return {have,full:est.full,need:!(have>=est.full-0.5)};
+    }
+  },
   /* 播放链路的可验证证据：AudioContext 状态、输出节点、缓冲峰值/RMS、Analyser 参数 */
   audioReport(){
     const b=transport.getBuffer();
@@ -451,12 +575,11 @@ window.__vz={view,list,current,select,register,data:dataMod,transport,registry:{
     hideEmpty();
     if(posSub)posSub.textContent=describe();
     const r=await renderAndLoad(p);
-    console.log('[viz] loadDemo →',r&&r.status,'notes=',r&&r.notes);
     return r;
   },
-  /* 诊断（临时）：导出当前工程 JSON（供在 Node 桩里完整复现） */
+  /* 诊断（按需）：导出当前工程 JSON（供在 Node 桩里完整复现）。T6 起不打印，返回值即结果 */
   exportJson(){
-    if(!dataOk||!proj||!proj.tracks){ console.log('[viz-diag] 未载入工程'); return null }
+    if(!dataOk||!proj||!proj.tracks)return null;
     const s=exportProjectJson(proj);
     try{
       const a=document.createElement('a');
@@ -464,14 +587,14 @@ window.__vz={view,list,current,select,register,data:dataMod,transport,registry:{
       a.download=(proj.name||'viz-project')+'.json';
       document.body.appendChild(a); a.click();
       setTimeout(()=>{ try{ a.remove() }catch(e){} },0);
-      console.log('[viz-diag] 已触发下载，字节数='+s.length);
-    }catch(e){ console.log('[viz-diag] 下载失败，改从返回值复制：',e&&e.message) }
+    }catch(e){ console.error('[viz-diag] 导出 JSON 失败',e) }
     return s;
   },
-  /* 诊断（临时）：跑 A 超时复现 + D 阶梯二分，定位卡死起点；不改变正常渲染流程 */
+  /* 诊断（按需）：串行阶梯二分，定位渲染卡死起点；不改变正常渲染流程。
+     现在只返回数据（Console 里直接看 __vz.diagnose() 的结果，含 ladder 数组） */
   async diagnose(){
-    if(!dataOk){ console.log('[viz-diag] 未载入工程'); return null }
-    return await diagnoseRender(proj,x=>console.log('[viz-diag] 结果',x));
+    if(!dataOk)return null;
+    return await diagnoseRender(proj);
   },
   /* 诊断（临时）：不渲染即预测节点规模（需先 rebuildEvents，此处用当前已建事件） */
   nodeReport(){

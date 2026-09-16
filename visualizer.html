@@ -46,6 +46,11 @@
       <option value="full">全曲</option>
     </select>
   </label>
+  <button class="vz-btn" id="vzCoverBtn" title="分析整曲并生成专辑封面（预览 / 下载 PNG）">
+    <!-- 图标由 coverUI 运行时填入：emoji 能渲染就用 🎨，否则退回几何符号（Windows 下 emoji 缺字形会变方块） -->
+    <span class="vz-btn-ico" id="vzCoverIco" aria-hidden="true"></span>
+    <span class="vz-btn-txt">生成封面</span>
+  </button>
 </header>
 
 <main class="vz-stage" id="vzStage">
@@ -54,6 +59,43 @@
     <div class="vz-card">
       <div class="vz-cardT"><span class="vz-ico" aria-hidden="true">&#9670;</span>音乐可视化</div>
       <div class="vz-cardB" id="vzCardBody">正在初始化…</div>
+    </div>
+  </div>
+  <div class="vz-overlay off" id="vzCoverModal">
+    <div class="vz-card vz-cover-card">
+      <div class="vz-cover-head">
+        <span class="vz-cover-title">生成封面</span>
+        <span class="vz-cover-note" id="vzCoverNote"></span>
+        <button type="button" class="vz-cover-x" id="vzCoverClose" title="关闭（Esc）">×</button>
+      </div>
+      <div class="vz-cover-kinds" id="vzCoverKinds">
+        <button type="button" data-kind="cover" class="on">专辑封面</button>
+        <button type="button" data-kind="fingerprint">音乐指纹</button>
+      </div>
+      <div class="vz-cover-body" id="vzCoverBody">
+        <canvas class="vz-cover-canvas" id="vzCoverCanvas" width="800" height="800"></canvas>
+      </div>
+      <div class="vz-cover-tabs" id="vzCoverStyles">
+        <button type="button" data-style="ring" class="on">同心声纹</button>
+        <button type="button" data-style="bricks">能量砖阵</button>
+        <button type="button" data-style="ribbon">波形缎带</button>
+      </div>
+      <div class="vz-cover-actions">
+        <label class="vz-cover-seed wide">曲名
+          <input type="text" id="vzCoverTitle" maxlength="40" placeholder="未命名工程" autocomplete="off">
+        </label>
+      </div>
+      <div class="vz-cover-actions">
+        <label class="vz-cover-seed">种子
+          <input type="number" id="vzCoverSeed" min="0" max="1000000000" step="1" value="1">
+        </label>
+        <label class="vz-cover-hd" title="以 2× 分辨率离屏重绘后导出（封面 1600×1600 / 指纹 3840×800）">
+          <input type="checkbox" id="vzCoverHd"> 高清导出 2×
+        </label>
+        <span class="vz-spacer"></span>
+        <button type="button" class="vz-btn" id="vzCoverShuffle" title="换一个种子，换一张图（同一工程同一种子出图完全一致）">换一张</button>
+        <button type="button" class="vz-btn acc" id="vzCoverDownload" title="导出 PNG">下载 PNG</button>
+      </div>
     </div>
   </div>
   <div class="vz-fps" id="vzFps">-- FPS</div>

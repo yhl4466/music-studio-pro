@@ -130,3 +130,86 @@ label.vz-lab>.vz-select{font-size:13px}
 .vz-pRange::-moz-range-track{height:4px;border-radius:2px;background:var(--well);border:1px solid var(--line)}
 .vz-pRange::-moz-range-thumb{width:10px;height:10px;border:2px solid var(--bg0);border-radius:50%;background:var(--acc)}
 .vz-pCheck{width:14px;height:14px;accent-color:var(--acc);cursor:pointer}
+
+/* ---------- FEAT-V4 / T3.5：封面预览弹窗（配色全部走 theme.css 变量，不新增颜色字面量） ---------- */
+/* 通用小按钮：顶部工具条与弹窗内共用（此前只有 .vz-play / .vz-cancel 两种专用按钮） */
+.vz-btn{
+  display:inline-flex;align-items:center;gap:6px;flex:none;padding:7px 12px;cursor:pointer;
+  font-size:13px;white-space:nowrap;border:1px solid var(--line2);border-radius:var(--r-sm);
+  background:var(--ctl-bg);color:var(--txt);transition:.16s;
+}
+.vz-btn:hover:not(:disabled){background:var(--hover);border-color:var(--acc);color:var(--on-txt)}
+.vz-btn:disabled{opacity:.45;cursor:not-allowed}
+.vz-btn.acc{background:var(--grad);border-color:transparent;color:var(--on-acc);font-weight:600}
+.vz-btn.acc:hover:not(:disabled){filter:brightness(1.08);color:var(--on-acc)}
+.vz-btn-ico{font-size:15px;line-height:1}
+.vz-btn-txt{white-space:nowrap}
+
+/* 弹窗复用 .vz-overlay + .vz-card 的定位与底色，只补宽度/滚动/内部排版 */
+.vz-cover-card{
+  width:min(460px,94%);max-height:calc(100% - 10px);overflow:auto;
+  text-align:left;padding:12px 14px 14px;
+}
+.vz-cover-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.vz-cover-title{
+  flex:none;font-size:14px;font-weight:700;
+  background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.vz-cover-note{
+  flex:1;min-width:0;font-family:var(--mono);font-size:11px;color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.vz-cover-x{
+  flex:none;width:26px;height:26px;line-height:1;cursor:pointer;font-size:16px;
+  border:1px solid var(--line2);border-radius:var(--r-sm);
+  background:var(--ctl-bg);color:var(--mut);transition:.16s;
+}
+.vz-cover-x:hover{background:var(--hover);border-color:var(--bad);color:var(--txt)}
+
+.vz-cover-body{
+  display:flex;justify-content:center;padding:8px;
+  background:var(--well);border:1px solid var(--line);border-radius:var(--r-sm);
+}
+/* 画布位图恒为 800×800（导出即此分辨率），此处只缩显示尺寸 */
+.vz-cover-canvas{display:block;width:400px;height:400px;max-width:100%;border-radius:var(--r-xs);background:#000}
+
+.vz-cover-tabs{display:flex;gap:8px;margin:10px 0}
+.vz-cover-tabs>button{
+  flex:1;padding:8px 6px;font-size:12px;cursor:pointer;
+  border:1px solid var(--line2);border-radius:var(--r-sm);
+  background:var(--ctl-bg);color:var(--mut);transition:.16s;
+}
+.vz-cover-tabs>button:hover{background:var(--hover);color:var(--txt)}
+.vz-cover-tabs>button.on{background:var(--sel-bg);border-color:var(--acc);color:var(--on-txt);font-weight:600}
+
+/* 产物切换（专辑封面 / 音乐指纹）：比风格子 tab 更醒目，用渐变描边区分层级 */
+.vz-cover-kinds{display:flex;gap:8px;margin-bottom:10px}
+.vz-cover-kinds>button{
+  flex:1;padding:9px 8px;font-size:13px;font-weight:600;cursor:pointer;
+  border:1px solid var(--line2);border-radius:var(--r-sm);
+  background:var(--ctl-bg);color:var(--mut);transition:.16s;
+}
+.vz-cover-kinds>button:hover{background:var(--hover);color:var(--txt)}
+.vz-cover-kinds>button.on{background:var(--grad);border-color:transparent;color:var(--on-acc)}
+.vz-cover-hd{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:12px;color:var(--mut);cursor:pointer}
+.vz-cover-hd>input{width:14px;height:14px;accent-color:var(--acc);cursor:pointer}
+.vz-hide{display:none !important}
+
+/* 指纹模式：弹窗变宽、画布按 1920×400 等比自适应（高由 canvas 固有比例决定） */
+.vz-cover-card.fp{width:min(1000px,96%)}
+.vz-cover-body.fp{padding:6px}
+.vz-cover-body.fp .vz-cover-canvas{width:100%;height:auto;max-width:960px;border-radius:var(--r-xs)}
+
+.vz-cover-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.vz-cover-actions+.vz-cover-actions{margin-top:8px}
+.vz-cover-seed{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:12px;color:var(--mut)}
+.vz-cover-seed>input{
+  width:118px;padding:6px 8px;font-family:var(--mono);font-size:12px;
+  border:1px solid var(--line2);border-radius:var(--r-sm);
+  background:var(--ctl-bg);color:var(--txt);
+}
+/* 曲名一行：占满整行，输入框自动伸展 */
+.vz-cover-seed.wide{flex:1;min-width:0}
+.vz-cover-seed.wide>input{flex:1;width:auto;min-width:0}
+/* 视口较矮时缩小预览，避免弹窗内出现滚动条 */
+@media (max-height:820px){ .vz-cover-canvas{width:300px;height:300px} }
