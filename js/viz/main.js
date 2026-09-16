@@ -15,6 +15,9 @@ import './renderers/waveform.js';
 import './renderers/spectrogram.js';
 import './renderers/ecg.js';
 import './renderers/radar.js';
+import './renderers/radial.js';       // FEAT-V3/T1：径向频谱
+import './renderers/particles.js';    // FEAT-V3/T2：粒子系统（自己不清屏，走半透明覆盖拖尾）
+import './renderers/bounce.js';       // FEAT-V3/T3：跳动波形
 
 /* ---------- DOM 句柄 ---------- */
 const stage=$('#vzStage'), cv=$('#vzCanvas'), overlay=$('#vzOverlay'), cardBody=$('#vzCardBody');
