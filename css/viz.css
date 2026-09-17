@@ -200,6 +200,11 @@ label.vz-lab>.vz-select{font-size:13px}
 .vz-cover-body.fp{padding:6px}
 .vz-cover-body.fp .vz-cover-canvas{width:100%;height:auto;max-width:960px;border-radius:var(--r-xs)}
 
+/* 分享卡片模式（FEAT-V6/T1）：1200×630，同样按固有比例自适应铺满弹窗 */
+.vz-cover-card.sc{width:min(1040px,96%)}
+.vz-cover-body.sc{padding:6px}
+.vz-cover-body.sc .vz-cover-canvas{width:100%;height:auto;max-width:1000px;border-radius:var(--r-xs)}
+
 .vz-cover-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .vz-cover-actions+.vz-cover-actions{margin-top:8px}
 .vz-cover-seed{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:12px;color:var(--mut)}

@@ -12,6 +12,7 @@
 import { $, downloadBlob } from '../core/util.js';
 import { generateCover, COVER_STYLES } from './cover.js';
 import { generateFingerprint } from './fingerprint.js';
+import { generateShareCard } from './shareCard.js';      // FEAT-V6/T1：分享卡片（1200×630）
 
 /* 顶部按钮图标：先试 emoji，运行时探测本机能不能画出来（画不出来就退回几何符号 ◆，绝不出现方块）。
    想手工固定：把 ICON 直接改成 '◆' 或任意字符即可（AUTO_ICON=false 关闭探测）。 */
@@ -20,7 +21,7 @@ const ICON_FALLBACK='◆';
 const AUTO_ICON=true;
 
 const STYLE_LABELS={ring:'同心声纹',bricks:'能量砖阵',ribbon:'波形缎带'};
-const KIND_LABELS={cover:'专辑封面',fingerprint:'音乐指纹'};
+const KIND_LABELS={cover:'专辑封面',fingerprint:'音乐指纹',sharecard:'分享卡片'};
 const SEED_MAX=1e9;
 
 let el=null;                       // DOM 句柄集合（bind 一次）
@@ -69,6 +70,24 @@ function titleOf(){
   if(typeof titleOverride==='string'&&titleOverride.trim())return titleOverride;
   return (typeof hooks.getTitle==='function'?hooks.getTitle():null)||'未命名工程';
 }
+/** 工程 BPM（FeatureObject 里没有这一项，由入口注入 hooks.getBpm；缺失返回 0 = 图上不显示） */
+function bpmOf(){
+  if(typeof hooks.getBpm==='function'){
+    try{ const b=Number(hooks.getBpm()); if(isFinite(b)&&b>0)return b }catch(e){}
+  }
+  return 0;
+}
+/** 印在分享卡片上的链接：优先入口注入，否则用当前页面地址（**去掉 hash** ——
+    工程分享用的 hash 可能有几十上百 KB，印在卡片上没意义；hash 体积另用一行小字说明）。 */
+function shareUrlOf(){
+  if(typeof hooks.getShareUrl==='function'){
+    try{ const u=hooks.getShareUrl(); if(u)return String(u) }catch(e){}
+  }
+  try{
+    if(typeof location!=='undefined')return location.origin+location.pathname;
+  }catch(e){}
+  return '';
+}
 function isOpen(){ return !!(el&&el.modal&&!el.modal.classList.contains('off')) }
 function setStyleButtons(){
   if(!el)return;
@@ -78,13 +97,30 @@ function setKindButtons(){
   if(!el)return;
   for(const b of el.kindTabs)if(b&&b.classList)b.classList.toggle('on',b.dataset&&b.dataset.kind===kind);
 }
-/** 产物模式：封面显示风格子 tab、画布 400×400 预览；指纹隐藏子 tab、画布按 1920×400 等比铺满弹窗 */
+/** 产物模式：
+    · 封面：显示风格子 tab，画布 800×800 正方形；
+    · 指纹：隐藏子 tab，画布 1920×400 横向铺满弹窗；
+    · 分享卡片：隐藏子 tab（固定用 bricks 调色板），画布 1200×630 横向铺满弹窗。 */
 function applyKindLayout(){
   if(!el)return;
   if(el.styles)el.styles.classList.toggle('vz-hide',kind!=='cover');
-  if(el.body)el.body.classList.toggle('fp',kind==='fingerprint');
-  if(el.card)el.card.classList.toggle('fp',kind==='fingerprint');
-  if(el.download)el.download.title=(kind==='fingerprint')?'导出 1920×400 PNG（高清勾选后 3840×800）':'导出 800×800 PNG（高清勾选后 1600×1600）';
+  if(el.body){
+    el.body.classList.toggle('fp',kind==='fingerprint');
+    el.body.classList.toggle('sc',kind==='sharecard');
+  }
+  if(el.card){
+    el.card.classList.toggle('fp',kind==='fingerprint');
+    el.card.classList.toggle('sc',kind==='sharecard');
+  }
+  if(el.download){
+    el.download.title=(kind==='sharecard')?'导出 1200×630 PNG（高清勾选后 2400×1260）'
+                     :(kind==='fingerprint')?'导出 1920×400 PNG（高清勾选后 3840×800）'
+                     :'导出 800×800 PNG（高清勾选后 1600×1600）';
+  }
+  if(el.hd&&el.hd.parentElement)el.hd.parentElement.title=(kind==='sharecard')
+    ?'以 2× 分辨率离屏重绘后导出（分享卡片 2400×1260）'
+    :'以 2× 分辨率离屏重绘后导出（封面 1600×1600 / 指纹 3840×800）';
+  void 0;
 }
 function setBtnBusy(on){
   if(!el||!el.btn)return;
@@ -102,14 +138,20 @@ function render(){
   let info=null;
   try{
     const title=titleOf();
-    features.title=title;                      // 规格要求：曲名编辑同步到 features.title（cover/fingerprint 都会读它）
-    if(kind==='fingerprint'){
+    features.title=title;                      // 规格要求：曲名编辑同步到 features.title（cover/fingerprint/sharecard 都会读它）
+    if(kind==='sharecard'){
+      info=generateShareCard(el.canvas,features,{
+        title, seed,
+        bpm:bpmOf(),
+        shareUrl:shareUrlOf()
+      });
+    }else if(kind==='fingerprint'){
       info=generateFingerprint(el.canvas,features,seed,{title});
     }else{
       info=generateCover(el.canvas,features,style,seed,{title,showTitle:true});
     }
     const ms=t0?Math.round(((performance.now?performance.now():0)-t0)):0;
-    const what=(kind==='fingerprint')?'音乐指纹':(STYLE_LABELS[style]||style);
+    const what=(kind==='sharecard')?'分享卡片':((kind==='fingerprint')?'音乐指纹':(STYLE_LABELS[style]||style));
     setNote(what+' · 种子 '+seed+(ms?(' · '+ms+' ms'):'')+' · '+el.canvas.width+'×'+el.canvas.height+
             (hd?' · 导出将用 2×':''));
   }catch(e){
@@ -207,7 +249,8 @@ function exportCanvas(){
   if(scale===1||typeof document==='undefined'||typeof document.createElement!=='function')return el.canvas;
   const off=document.createElement('canvas');
   try{
-    if(kind==='fingerprint')generateFingerprint(off,features,seed,{scale:2,title:titleOf()});
+    if(kind==='sharecard')generateShareCard(off,features,{scale:2,title:titleOf(),seed,bpm:bpmOf(),shareUrl:shareUrlOf()});
+    else if(kind==='fingerprint')generateFingerprint(off,features,seed,{scale:2,title:titleOf()});
     else generateCover(off,features,style,seed,{scale:2,title:titleOf()});
     return off;
   }catch(e){
@@ -218,7 +261,8 @@ function exportCanvas(){
 function download(){
   if(!el||!el.canvas){ setNote('还没有可下载的画布'); return }
   if(!features){ setNote('还没有分析结果，无法导出'); return }
-  const name=safeName(titleOf())+(kind==='fingerprint'?'-fingerprint.png':('-cover-'+style+'.png'));
+  const name=safeName(titleOf())+(kind==='sharecard'?'-sharecard.png'
+              :(kind==='fingerprint'?'-fingerprint.png':('-cover-'+style+'.png')));
   const src=exportCanvas();
   try{
     src.toBlob(blob=>{

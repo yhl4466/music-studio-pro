@@ -20,6 +20,7 @@ import './renderers/radar.js';
 import './renderers/radial.js';       // FEAT-V3/T1：径向频谱
 import './renderers/particles.js';    // FEAT-V3/T2：粒子系统（自己不清屏，走半透明覆盖拖尾）
 import './renderers/bounce.js';       // FEAT-V3/T3：跳动波形
+import './renderers/forest.js';       // FEAT-V5：3D 频谱森林（伪 3D 透视投影，无 3D 库）
 
 /* ---------- DOM 句柄 ---------- */
 const stage=$('#vzStage'), cv=$('#vzCanvas'), overlay=$('#vzOverlay'), cardBody=$('#vzCardBody');
@@ -396,7 +397,11 @@ function boot(){
   bindCoverUI({
     ensureFeatures:(o)=>analyzeProject(o),     // coverUI 会传 {forceFull:true}：封面强制整曲
     getFeatures:()=>lastFeatures,
-    getTitle:()=>(proj&&proj.name)||'未命名工程'
+    getTitle:()=>(proj&&proj.name)||'未命名工程',
+    /* FEAT-V6/T1：分享卡片要印 BPM（FeatureObject 里没有这项）与非 hash 的分享链接；
+       入口持有 proj 与 location，所以由这里注入，coverUI 不 import data/io。 */
+    getBpm:()=>(proj&&isFinite(+proj.bpm))?Math.round(+proj.bpm):0,
+    getShareUrl:()=>{ try{ return location.origin+location.pathname }catch(e){ return '' } }
   });
   setUI({renderParams});                   // 注入参数面板钩子（registry 不依赖 DOM）
   renderPicker();                          // 用注册表填充渲染器下拉
