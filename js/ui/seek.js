@@ -52,9 +52,25 @@ export function glowStepCells(step){
   lastGlowStep=step;
 }
 export function clearStepGlow(){
-  if(lastGlowStep>=0&&proj._uiCache&&proj._uiCache.cols){
-    const prev=lastGlowStep;
-    proj._uiCache.cols.forEach(c=>{const ce=c[prev];if(ce)ce.forEach(e=>e.classList.remove('playCol'))});
+  /* 修复 Bug 2（双播放头）：原来这里用 if(lastGlowStep>=0) 找到"上一次点亮的那一列"来清，
+     但 buildCaches() 重建行池后会调用 resetGlow() 把 lastGlowStep 置 -1，旧列上的 playCol 就永远清不掉了；
+     虚拟窗口复用池里的 DOM 格子时类名会残留 → 新播放再点一格 = 两条播放头。
+     现在不再依赖 lastGlowStep：全量扫一遍缓存里的所有轨道 × 所有列，把残留的 playCol 一律移除。
+     规模只有虚拟窗口那一屏（轨数 × 窗内步数），相对一个十六分音符的间隔开销可忽略。 */
+  const cols=proj._uiCache&&proj._uiCache.cols;
+  if(cols){
+    for(let ti=0;ti<cols.length;ti++){
+      const c=cols[ti];
+      if(!c)continue;
+      for(let s=0;s<c.length;s++){
+        const ce=c[s];
+        if(!ce)continue;
+        for(let k=0;k<ce.length;k++){
+          const e=ce[k];
+          if(e&&e.classList)e.classList.remove('playCol');
+        }
+      }
+    }
   }
   lastGlowStep=-1;
 }
@@ -104,6 +120,7 @@ export function seekToStep(s){
   const wasPlaying=Play.playing;
   if(wasPlaying)stopPlay();
   Play.step=s;
+  Play.hasStarted=true;   // seek = "我要从这里开始"：即使从未播放过，之后按播放也从 s 起（不被 togglePlay 归零）
   updatePos(s);
   glowStepCells(s);
   if(wasPlaying)startFromStep();
@@ -129,6 +146,7 @@ export function startFromStep(){
   if(!ensureAudio())return;
   setGate(true,true);
   Play.nom=actx.currentTime+.06;Play.q=[];Play.uiStep=-1;
+  Play.hasStarted=true;   // 已经开始走过带：之后暂停再播放要从当前位置继续，而不是归零
   Play.playing=true;setPlayUI(true);
   tickSched();
   Play.timer=setInterval(tickSched,30);

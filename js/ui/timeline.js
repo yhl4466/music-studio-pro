@@ -366,6 +366,9 @@ export function structural(full){
   // 行名（左侧 .lab）依赖：调性/调式/基音八度 + 每轨 shift/keyOct/行数；缓存 rev 只覆盖前者
   const labSig=proj.key+'|'+proj.mode+'|'+proj.keyOct+'|'+proj.tracks.map(t=>(t.shift||0)+','+(t.keyOct||0)+','+patRows(t)).join(';');
   if(full||!proj._uiCache||proj._uiCache.steps!==S||proj._uiCache.rev!==(proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct)){
+    /* 修复 Bug 2 的保险（方案 B）：重建缓存/行池之前先把旧 DOM 上的 playCol 清干净。
+       必须放在替换 proj._uiCache 之前 —— clearStepGlow() 需要读的还是旧缓存里的 cols。 */
+    try{hooks.seek?.clearStepGlow?.()}catch(e){}
     proj._uiCache={steps:S,rev:proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct,labSig};
     const _n=VIRTUAL?poolCols():0;
     const _from=VIRTUAL?windowFrom(_n):0;

@@ -115,7 +115,9 @@ export function fireStep(step,time,ctx,dest,straightTime){
     }
   });
 }
-export const Play={playing:false,step:0,nom:0,timer:null,q:[],uiStep:-1,started:0};
+/* hasStarted：区分"停止态"与"暂停态"——暂停后按播放要从原位置继续，停止/曲终后按播放要回到 0。
+   由 togglePlay / stopPlay / finishSong / seekToStep / startFromStep 共同维护（见各处注释）。 */
+export const Play={playing:false,step:0,nom:0,timer:null,q:[],uiStep:-1,started:0,hasStarted:false};
 export let metroOn=false;
 export function setMetroOn(v){metroOn=v}
 export let loopOn=true; // 整曲循环（默认开）；关闭 = 单次播放，播完自动停
@@ -149,6 +151,7 @@ export function tickSched(){
 export function finishSong(){
   if(Play.timer){clearInterval(Play.timer);Play.timer=null}
   Play.playing=false;Play.q=[];Play.uiStep=-1;
+  Play.hasStarted=false;      // 曲终＝停止态：下次按播放从 0 开始（否则会停在最后一格反复收尾）
   playheadHooks.setPlayUI?.(false);
   if(A&&actx){
     const g=A.gate.gain, now=actx.currentTime;
@@ -162,17 +165,38 @@ export function finishSong(){
   playheadHooks.updatePos?.(proj.steps-1);
   UI.posSub.textContent='🎵 已结束';
 }
+/** 暂停：保留 Play.step 与 hasStarted —— 下次按播放从原位置继续。
+    与 stopPlay()（明确停止 / 回到停止态，下次从头）区分开：
+    播放按钮与空格键共用 togglePlay，如果暂停也走 stopPlay，"暂停后继续"就必然归零（Bug 1 的另一半）。 */
+export function pausePlay(){
+  if(!Play.playing)return false;
+  Play.playing=false;Play.q=[];Play.uiStep=-1;
+  if(Play.timer){clearInterval(Play.timer);Play.timer=null}
+  setGate(false,true);
+  playheadHooks.setPlayUI?.(false);
+  /* 注意：不调 updatePos(0)（那是 stopPlay 的"回到开头"语义），暂停时位置显示必须停在原处 */
+  return true;
+}
 export function togglePlay(){
-  if(Play.playing){stopPlay();return}
+  if(Play.playing){pausePlay();return}
   if(!ensureAudio())return;
   setGate(true,true);
-  Play.playing=true;Play.step=0;Play.uiStep=-1;Play.nom=actx.currentTime+.06;Play.q=[];
+  /* 修复 Bug 1：原来这里无条件 Play.step=0，导致"暂停后按播放"从头开始。
+     现在只有"没播放过"（初始态 / stopPlay 后 / 曲终后）才归零；暂停态保持 Play.step 继续。
+     注意 nom（排期游标）始终重置为当前时间 +0.06，这是"从当前位置接着往前走"所必需的；
+     seek 过的位置由 seekToStep 直接写 Play.step，并把 hasStarted 置 true，因此不受本分支影响。 */
+  if(!Play.hasStarted){
+    Play.step=0;
+  }
+  Play.hasStarted=true;
+  Play.playing=true;Play.uiStep=-1;Play.nom=actx.currentTime+.06;Play.q=[];
   playheadHooks.setPlayUI?.(true);
   tickSched();
   Play.timer=setInterval(tickSched,30);
 }
 export function stopPlay(){
   Play.playing=false;Play.q=[];Play.uiStep=-1;
+  Play.hasStarted=false;      // 停止＝回到停止态：下次按播放从 0 开始（暂停不经过这里，见 togglePlay）
   if(Play.timer){clearInterval(Play.timer);Play.timer=null}
   setGate(false,true); // 快速收声：不再拖长音
   playheadHooks.setPlayUI?.(false);
