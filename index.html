@@ -3,7 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>🎹 智能音乐工坊 PRO · AI 作曲工作室</title>
+<!-- 跨文档 View Transition 的 opt-in 双保险（批 C 诊断）：与 css/theme.css 的 @view-transition{navigation:auto}
+     等价、互相兼容；这是 W3C 推荐的早期写法，Chromium 111+ 就认，旧浏览器忽略本行不会报错 -->
+<meta name="view-transition" content="same-origin">
+<title>智能音乐工坊 PRO · AI 作曲工作室</title>
 <link rel="stylesheet" href="./css/theme.css">
 <link rel="stylesheet" href="./css/layout.css">
 <link rel="stylesheet" href="./css/timeline.css">
@@ -14,7 +17,7 @@
 
 <header class="topbar">
   <div class="brand" id="brandBtn">
-    <div class="logo">🎛️</div>
+    <div class="logo"></div>
     <b>智能音乐工坊</b>
     <span class="badge">PRO</span>
   </div>
@@ -25,10 +28,11 @@
       <svg viewBox="0 0 24 24" id="playIco"><path d="M8 5v14l11-7z"/></svg>
       <svg viewBox="0 0 24 24" id="stopIco" style="display:none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
     </button>
-    <div class="posBox"><div class="posMain" id="posMain">1.1.1</div><div class="posSub" id="posSub">BPM 120 · 4/4</div></div>
-    <button class="metroBtn" id="metroBtn">◉<span>节拍器</span></button>
-    <button class="metroBtn on" id="loopBtn" title="循环播放整曲 / 单次播放">🔁<span>循环</span></button>
-    <button class="toStartBtn" id="toStartBtn" title="回到开头（若在播放则从头重新开始）">⏮ 开头</button>
+    <!-- 批 C 第三部分：走带区只剩"操作状态"一行（位置已并入下方进度行，BPM/拍号只在顶栏数值处） -->
+    <div class="posBox"><div class="posSub" id="posSub" title="操作状态">就绪</div></div>
+    <button class="metroBtn" id="metroBtn"><span>节拍器</span></button>
+    <button class="metroBtn on" id="loopBtn" title="循环播放整曲 / 单次播放"><span>循环</span></button>
+    <button class="toStartBtn" id="toStartBtn" title="回到开头（若在播放则从头重新开始）">开头</button>
   </div>
 
   <div class="sep"></div>
@@ -62,7 +66,7 @@
   <div class="acts">
     <div class="vizBox"><canvas id="viz" width="120" height="30"></canvas></div>
     <div class="menuWrap">
-      <button class="btn" id="eqBtn" title="主输出 3 段均衡 / 砖墙限制器">🎛 EQ</button>
+      <button class="btn" id="eqBtn" title="主输出 3 段均衡 / 砖墙限制器">EQ</button>
       <div class="menu eqPanel" id="eqPanel">
         <div class="h2" style="margin-top:2px">主输出均衡 / 限制</div>
         <div class="sliderLine"><label>低频</label><input type="range" id="eqL" min="-12" max="12" value="0"><span class="v" id="eqLV">0</span></div>
@@ -72,33 +76,33 @@
         <div class="small">EQ ±12dB；限制器可避免削波。</div>
       </div>
     </div>
-    <button class="btn acc" id="aiBtn" title="打开 AI 作曲面板">✨ AI 作曲</button>
+    <button class="btn acc" id="aiBtn" title="打开 AI 作曲面板">AI 作曲</button>
     <div class="menuWrap" id="themeWrap">
-      <button class="btn themeBtn" id="themeBtn" title="切换主题配色（6 套，选择会记住）">🎨</button>
+      <button class="btn themeBtn" id="themeBtn" title="切换主题配色（6 套，选择会记住）"></button>
     </div>
-    <button class="btn" id="sideToggle" title="收展右侧面板">▤</button>
+    <button class="btn" id="sideToggle" title="收展右侧面板"></button>
     <div class="menuWrap">
-      <button class="btn" id="menuBtn">☰ 菜单</button>
+      <button class="btn" id="menuBtn">菜单</button>
       <div class="menu" id="menu">
-        <button class="mi" data-act="addLead"><span class="ic">🎤</span>添加主旋律轨</button>
-        <button class="mi" data-act="addArp"><span class="ic">🌊</span>添加琶音轨</button>
-        <button class="mi" data-act="addPad"><span class="ic">🌫️</span>添加和弦垫轨</button>
-        <button class="mi" data-act="addChord"><span class="ic">🎹</span>添加柱式和弦轨</button>
-        <button class="mi" data-act="addBass"><span class="ic">🎸</span>添加贝斯轨</button>
-        <button class="mi" data-act="addDrum"><span class="ic">🥁</span>添加鼓组轨</button>
+        <button class="mi" data-act="addLead"><span class="ic"></span>添加主旋律轨</button>
+        <button class="mi" data-act="addArp"><span class="ic"></span>添加琶音轨</button>
+        <button class="mi" data-act="addPad"><span class="ic"></span>添加和弦垫轨</button>
+        <button class="mi" data-act="addChord"><span class="ic"></span>添加柱式和弦轨</button>
+        <button class="mi" data-act="addBass"><span class="ic"></span>添加贝斯轨</button>
+        <button class="mi" data-act="addDrum"><span class="ic"></span>添加鼓组轨</button>
         <div class="divider" style="margin:4px 0"></div>
-        <button class="mi" data-act="saveFile"><span class="ic">💾</span>导出工程文件<small>JSON</small></button>
-        <button class="mi" data-act="loadFile"><span class="ic">📂</span>导入工程文件<small>JSON</small></button>
-        <button class="mi" data-act="quickSave"><span class="ic">🔖</span>快速保存到浏览器<small>Ctrl+S</small></button>
-        <button class="mi" data-act="quickLoad"><span class="ic">♻️</span>载入浏览器存档</button>
+        <button class="mi" data-act="saveFile"><span class="ic"></span>导出工程文件<small>JSON</small></button>
+        <button class="mi" data-act="loadFile"><span class="ic"></span>导入工程文件<small>JSON</small></button>
+        <button class="mi" data-act="quickSave"><span class="ic"></span>快速保存到浏览器<small>Ctrl+S</small></button>
+        <button class="mi" data-act="quickLoad"><span class="ic"></span>载入浏览器存档</button>
         <div class="divider" style="margin:4px 0"></div>
-        <button class="mi" data-act="exportWav"><span class="ic">📼</span>导出 WAV 音频</button>
-        <button class="mi" data-act="exportMidi"><span class="ic">🎹</span>导出 MIDI 文件</button>
-        <button class="mi" data-act="importMidi"><span class="ic">📥</span>导入 MIDI 文件</button>
-        <button class="mi" data-act="shareLink"><span class="ic">🔗</span>复制分享链接</button>
-        <button class="mi" data-act="help"><span class="ic">❓</span>快捷键 &amp; 说明</button>
+        <button class="mi" data-act="exportWav"><span class="ic"></span>导出 WAV 音频</button>
+        <button class="mi" data-act="exportMidi"><span class="ic"></span>导出 MIDI 文件</button>
+        <button class="mi" data-act="importMidi"><span class="ic"></span>导入 MIDI 文件</button>
+        <button class="mi" data-act="shareLink"><span class="ic"></span>复制分享链接</button>
+        <button class="mi" data-act="help"><span class="ic"></span>快捷键 &amp; 说明</button>
         <div class="divider" style="margin:4px 0"></div>
-        <button class="mi" data-act="clearAll" style="color:var(--bad)"><span class="ic">🗑️</span>清空全部音轨</button>
+        <button class="mi" data-act="clearAll" style="color:var(--bad)"><span class="ic"></span>清空全部音轨</button>
       </div>
     </div>
     <input type="file" id="fileIn" accept=".json,.mpjson" style="display:none">
@@ -120,13 +124,13 @@
         <option value="12/8">12/8</option>
       </select>
       <div class="zoomGrp toolGrp" title="绘制工具：画笔=点/拖画（从亮格拖=擦）；橡皮=点/拖擦；选区=拖一段用于 复制/区域量化。任意工具下按住 Shift 拖也可以直接框选">
-        <button id="toolPaint" class="on" title="画笔：点/拖画音符">✏️</button>
-        <button id="toolErase" title="橡皮：点/拖擦除">🧽</button>
-        <button id="toolSel" title="选区/区域量化：按住左键拖出一个框（和文件管理器选文件一样），松开后即可 📋复制 或 🎯只量化这一段；或按住 Shift 拖动直接框选">🔲</button>
+        <button id="toolPaint" class="on" title="画笔：点/拖画音符"></button>
+        <button id="toolErase" title="橡皮：点/拖擦除"></button>
+        <button id="toolSel" title="选区/区域量化：按住左键拖出一个框（和文件管理器选文件一样），松开后即可复制 或 只量化这一段；或按住 Shift 拖动直接框选"></button>
       </div>
       <div class="zoomGrp clipGrp" title="复制/粘贴：先框选一段并复制（Ctrl+C），把播放头移到目标轨的起点（或 Alt 点目标格定位）后粘贴（Ctrl+V）">
-        <button id="copyBtn" title="复制选区 (Ctrl+C)">📋</button>
-        <button id="pasteBtn" title="粘贴 (Ctrl+V)">📌</button>
+        <button id="copyBtn" title="复制选区 (Ctrl+C)"></button>
+        <button id="pasteBtn" title="粘贴 (Ctrl+V)"></button>
         <span class="zv" id="regionInfo" style="min-width:0;text-align:left"></span>
       </div>
       <span class="miniLbl" style="margin:0">量化</span>
@@ -136,7 +140,7 @@
         <option value="4">1/4</option>
       </select>
       <div class="rangeW" style="width:70px"><input type="range" id="quantStr" min="0" max="100" value="100" title="量化强度（%靠近网格；0=不动）"></div>
-      <button class="btn sm" id="quantBtn" title="把音符吸附到网格（有选区=只量化选区）">🎯 吸附</button>
+      <button class="btn sm" id="quantBtn" title="把音符吸附到网格（有选区=只量化选区）">吸附</button>
       <span class="qEst" id="quantEst"></span>
       <select class="miniSel" id="rhythmSel" style="width:auto" title="选区节奏细分：把选区里每拍的起音改成 N 等分精确时值（2/3/4/5/6 连音），或还原成普通网格">
         <option value="2">2 连音</option>
@@ -146,18 +150,28 @@
         <option value="6">6 连音</option>
         <option value="0">还原为网格</option>
       </select>
-      <button class="btn sm" id="rhythmBtn" title="先在旋律/鼓组轨上框选整数拍（🔲 选区 或 Shift+拖），再点这里应用细分">♫ 应用细分</button>
-      <button class="btn sm" id="undoBtn" disabled title="撤销 Ctrl+Z">↩ 撤销</button>
-      <button class="btn sm" id="redoBtn" disabled title="重做 Ctrl+Shift+Z">↪ 重做</button>
-      <button class="btn sm" id="humanBtn" title="给所有音符加入轻微力度变化">🎲 人性化力度</button>
-      <button class="btn sm" id="randPatchBtn" title="随机化选中音轨的音色">🌈 随机音色</button>
-      <button class="btn sm danger" id="clearSelBtn" title="清空选中音轨的图案 (Delete)">🧹 清空选中轨</button>
-      <button class="btn sm on" id="followBtn" title="播放时自动滚动时间线跟随播放头">↳ 跟随</button>
+      <button class="btn sm" id="rhythmBtn" title="先在旋律/鼓组轨上框选整数拍（选区工具 或 Shift+拖），再点这里应用细分">应用细分</button>
+      <button class="btn sm" id="undoBtn" disabled title="撤销 Ctrl+Z"><span class="ico ico-undo" aria-hidden="true"></span>撤销</button>
+      <button class="btn sm" id="redoBtn" disabled title="重做 Ctrl+Shift+Z"><span class="ico ico-redo" aria-hidden="true"></span>重做</button>
+      <!-- 批 C 第三部分：低频的 4 个编辑动作从常驻收进「编辑 ▾」菜单（id / 事件绑定一律不变，
+           结构上只是换了父节点；菜单项的 .mi 类让它们与主菜单同一套观感与交错动效） -->
+      <div class="menuWrap" id="editWrap">
+        <button class="btn sm" id="editBtn" title="更多编辑操作（人性化力度 / 随机音色 / 清空选中轨 / 跟随）" aria-haspopup="true" aria-expanded="false">编辑 <span class="ico ico-caret" aria-hidden="true"></span></button>
+        <div class="menu menuBelow" id="editMenu" role="menu" aria-label="更多编辑操作">
+          <button class="mi" id="humanBtn" title="给所有音符加入轻微力度变化">人性化力度</button>
+          <button class="mi" id="randPatchBtn" title="随机化选中音轨的音色">随机音色</button>
+          <button class="mi" id="clearSelBtn" title="清空选中音轨的图案 (Delete)">清空选中轨</button>
+          <div class="divider" style="margin:4px 0"></div>
+          <button class="mi" id="followBtn" title="播放时自动滚动时间线跟随播放头"><span class="ico ico-follow" aria-hidden="true"></span>跟随</button>
+        </div>
+      </div>
       <div class="zoomGrp" title="时间线视图缩放（只改变显示大小，不改曲长/音符）">
-        <button id="zoomOut" title="缩小">−</button><span class="zv" id="zoomV">100%</span><button id="zoomIn" title="放大">＋</button><button id="zoomFit" class="fit" title="适配窗口宽度（长曲缩放下限 50%，横向滚动查看）">⤢ 适配</button>
+        <button id="zoomOut" title="缩小"></button><span class="zv" id="zoomV">100%</span><button id="zoomIn" title="放大"></button><button id="zoomFit" class="fit" title="适配窗口宽度（长曲缩放下限 50%，横向滚动查看）"></button>
       </div>
     </div>
     <div class="seekBar" id="seekBar">
+      <!-- 批 C 第三部分：位置并入进度行 —— 位置(#posMain) + 时长(#seekLbl) 同处一行，全案只此一处报位置/时长 -->
+      <div class="posMain" id="posMain">1.1.1</div>
       <div class="seekTrack" id="seekTrack">
         <div class="seekFill" id="seekFill"></div>
         <div class="seekKnob" id="seekKnob"></div>
@@ -170,18 +184,18 @@
         <div id="trackList"></div>
       </div>
       <div class="emptyTip hidden" id="emptyTip">
-        <div class="big">🎼</div>
+        <div class="big"></div>
         <b>还没有任何音轨</b>
-        <div class="hint">点上方「✨ AI 作曲」一键生成一首完整编曲<br>或手动点击 <b style="color:var(--acc)">☰ 菜单</b> 添加音轨 · 也可 <b style="color:var(--acc)">导入工程</b></div>
-        <button class="btn acc" id="demoBtn" style="pointer-events:auto">🎬 加载示例工程</button>
+        <div class="hint">点上方「<span class="ico ico-sparkle" aria-hidden="true"></span>AI 作曲」一键生成一首完整编曲<br>或手动点击 <b style="color:var(--acc)"><span class="ico ico-menu" aria-hidden="true"></span>菜单</b> 添加音轨 · 也可 <b style="color:var(--acc)">导入工程</b></div>
+        <button class="btn acc" id="demoBtn" style="pointer-events:auto">加载示例工程</button>
       </div>
     </div>
     <div class="pianoBar" id="pianoBar">
       <div class="pinfo">
-        <span>🎹 键盘演奏 &nbsp;<kbd>A</kbd>–<kbd>L</kbd> 白键 · <kbd>W</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> 黑键</span>
-        <span>八度 <button class="btn sm" id="pianoOctDown">−</button><span id="pianoOctV" style="font:600 11px var(--mono)">C5</span><button class="btn sm" id="pianoOctUp">＋</button></span>
+        <span><span class="ico ico-keys" aria-hidden="true"></span>键盘演奏 &nbsp;<kbd>A</kbd>–<kbd>L</kbd> 白键 · <kbd>W</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> 黑键</span>
+        <span>八度 <button class="btn sm" id="pianoOctDown"></button><span id="pianoOctV" style="font:600 11px var(--mono)">C5</span><button class="btn sm" id="pianoOctUp"></button></span>
         <span><button class="btn sm" id="audBtn">试听音色</button></span>
-        <span title="让键盘起点对准所选旋律轨的音区，方便跟着试弹"><button class="btn sm" id="pianoAlign">⌖ 对准音区</button></span>
+        <span title="让键盘起点对准所选旋律轨的音区，方便跟着试弹"><button class="btn sm" id="pianoAlign">对准音区</button></span>
       </div>
       <div class="pKeys" id="pKeys"></div>
     </div>
@@ -189,9 +203,9 @@
 
   <aside class="side" id="side">
     <nav class="sideTabs">
-      <button class="stab on" data-tab="ai">✨ AI 作曲</button>
-      <button class="stab" data-tab="track">🎚️ 轨道 / 混音</button>
-      <button class="stab" data-tab="lib">📚 作品库</button>
+      <button class="stab on" data-tab="ai">AI 作曲</button>
+      <button class="stab" data-tab="track">轨道 / 混音</button>
+      <button class="stab" data-tab="lib">作品库</button>
     </nav>
     <div class="sideBody" id="sideBody"></div>
   </aside>

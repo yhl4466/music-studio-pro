@@ -2,7 +2,7 @@
    （时间线渲染/缓存/画格/选区/节奏细分/量化/缩放；find 见 STEP 0 计划） */
 import { proj, uiZoom, setUiZoom, uiTab, selTrack, stepsPerQuarter, stepsPerBeat, meterN, meterD, SPB, beatSteps, stepWidth, effStepWidth, ensurePatSizes, pruneTrackPrec, patRows, allocPat, rowMidi, actx, A, MAX_BARS, ZOOM_MIN, CELL_MIN_PX, FIT_MIN_LONG } from '../core/state.js';
 import { KIT, MEL_ROWS, NOTE_NAMES, ROLES, noteNameOf, trackRows, octRowsOf, PREC_U_PER_STEP } from '../core/theory.js';
-import { $, $$, el, clamp, toast, debounce, UI, hooks } from '../core/util.js';
+import { $, $$, el, clamp, toast, icon, debounce, UI, hooks } from '../core/util.js';
 import { KIT_COLORS, drumVoice } from '../audio/drum.js';
 import { auditionTrack } from '../audio/synth.js';
 import { ensureAudio, setGate } from '../audio/master.js';
@@ -428,7 +428,7 @@ export function buildTrackGroup(t,ti,list){
     const head=el('div','thead'+(ti===proj.sel?' sel':''));
     const headLeft=el('div','theadLeft');head.appendChild(headLeft);
     const R=ROLES[t.role]||ROLES.custom;
-    const colArrow=el('span','collapse','▾');
+    const colArrow=el('span','collapse',icon('caret'));
     colArrow.title=t.collapsed?'展开':'折叠';
     colArrow.addEventListener('click',ev=>{
       ev.stopPropagation();
@@ -441,7 +441,7 @@ export function buildTrackGroup(t,ti,list){
       }
     });
     headLeft.appendChild(colArrow);
-    const ico=el('div','tgIcon',R.icon);ico.style.background=t.color+'33';ico.style.color=t.color;
+    const ico=el('div','tgIcon',icon(R.icon));ico.style.background=t.color+'33';ico.style.color=t.color;
     headLeft.appendChild(ico);
     const nm=el('input','tname');nm.value=t.name;nm.title=t.name;
     nm.addEventListener('focus',e=>e.stopPropagation());
@@ -489,7 +489,7 @@ export function buildTrackGroup(t,ti,list){
         const lab=el('div','lab'+(t.kind==='mel'&&r%7===0?' root':''));
         if(t.kind==='drum'){
           const k=KIT[r];
-          lab.innerHTML='<span style="color:'+KIT_COLORS[r]+'">'+k.icon+'</span>'+k.name;
+          lab.innerHTML='<span style="color:'+KIT_COLORS[r]+'">'+icon(k.icon)+'</span>'+k.name;
         }else{
           lab.innerHTML=noteNameOf(rowMidi(t,r));
         }
@@ -658,12 +658,12 @@ export function updateQuantHint(){
   const q=document.getElementById('quantBtn');
   if(!q)return;
   if(regionSel&&regionSel.ti>=0&&proj.tracks[regionSel.ti]){
-    // 按钮文案跟着作用范围变，用户一眼就知道点了会量化什么
-    q.textContent='🎯 量化选中段';
+    // 按钮文案跟着作用范围变，用户一眼就知道点了会量化什么（图标由 .ico 提供，文案随状态变）
+    q.innerHTML=icon('target')+'量化选中段';
     q.title='只量化你框选的这段：第 '+(Math.floor(regionSel.from/SPB())+1)+' 小节起 · '+(regionSel.to-regionSel.from+1)+' 步（想改回整首：Esc 取消选区）';
   }else{
-    q.textContent='🎯 吸附';
-    q.title='把音符对齐到 1/8 或 1/4 网格：默认整首；想只量化一小段，就按住左键在格子上拖出选区（或用 🔲 工具）';
+    q.innerHTML=icon('target')+'吸附';
+    q.title='把音符对齐到 1/8 或 1/4 网格：默认整首；想只量化一小段，就按住左键在格子上拖出选区（或用选区工具）';
   }
 }
 /* 选区节奏细分按钮：有可转换的选区才可用 */
@@ -675,7 +675,7 @@ export function updateRhythmUI(){
   b.disabled=!ok;
   b.title=ok
     ?'把框选的整数拍改成 N 等分精确时值，或还原成普通网格（可 Ctrl+Z 撤销）'
-    :'请先在旋律轨/鼓组轨上框选整数拍：点 🔲 选区（或按住 Shift 拖），再点这里应用细分';
+    :'请先在旋律轨/鼓组轨上框选整数拍：点选区工具（或按住 Shift 拖），再点这里应用细分';
 }
 export function refreshRegionState(){
   updateRegionInfo();
@@ -731,7 +731,7 @@ export function extendRegionSel(ti,s){
 export function updClipUI(){
   const cb=document.getElementById('copyBtn'),pb=document.getElementById('pasteBtn');
   if(cb){
-    cb.title=regionSel?'复制选区 '+(regionSel.to-regionSel.from+1)+' 步 (Ctrl+C)':'框选一段再复制：点 🔲 选区拖，或按住 Shift 在格子上拖 (Ctrl+C)';
+    cb.title=regionSel?'复制选区 '+(regionSel.to-regionSel.from+1)+' 步 (Ctrl+C)':'框选一段再复制：点选区工具拖，或按住 Shift 在格子上拖 (Ctrl+C)';
   }
   if(pb){
     const tri=(clip.prec&&clip.prec.length)?(' · '+clip.prec.length+' 个细分音'):'';
@@ -739,7 +739,7 @@ export function updClipUI(){
   }
 }
 export function copyRegion(){
-  if(!regionSel||regionSel.ti<0){toast('请先框选一段：点 🔲 选区工具拖，或按住 Shift 在格子上拖选要复制的一段','err');return}
+  if(!regionSel||regionSel.ti<0){toast('请先框选一段：点选区工具拖，或按住 Shift 在格子上拖选要复制的一段','err','marquee');return}
   const t=proj.tracks[regionSel.ti];
   if(!t){toast('目标音轨不存在','err');return}
   const lo=regionSel.from,hi=regionSel.to;
@@ -763,7 +763,7 @@ export function copyRegion(){
   }
   clip.cells=cells;clip.prec=precs;clip.len=hi-lo+1;clip.kind=t.kind;clip.srcTi=regionSel.ti;
   const barsTxt=clip.len>=SPB()?(clip.len/SPB())+' 小节':clip.len+' 步';
-  toast('📋 已复制「'+(t.name||'音轨')+'」的 '+barsTxt+'（'+clip.len+' 步'+(precs.length?' · 含 '+precs.length+' 个细分音':'')+'）→ 把播放头移到目标处，或按住 Alt 点目标轨的起始格，再 粘贴 / Ctrl+V','ok');
+  toast('已复制「'+(t.name||'音轨')+'」的 '+barsTxt+'（'+clip.len+' 步'+(precs.length?' · 含 '+precs.length+' 个细分音':'')+'）→ 把播放头移到目标处，或按住 Alt 点目标轨的起始格，再 粘贴 / Ctrl+V','ok','copy');
   clearRegionUI(); // 复制后清掉源选区，粘贴默认落到播放头
   updateRegionInfo();
   updClipUI();
@@ -814,7 +814,7 @@ export function pasteRegion(){
   updateRegionInfo();
   updClipUI();
   const b0=Math.floor(at/SPB())+1;
-  toast('📌 已粘贴 '+clip.len+' 步到「'+(t.name||'音轨')+'」第 '+b0+' 小节起'+(wrote?'':'（内容与原位相同）'),'ok');
+  toast('已粘贴 '+clip.len+' 步到「'+(t.name||'音轨')+'」第 '+b0+' 小节起'+(wrote?'':'（内容与原位相同）'),'ok','paste');
 }
 export function clearRegionAndClipUI(){
   clearRegionUI();
@@ -854,7 +854,7 @@ export function convertRegionRhythm(n){
   const trk=selTrack();
   if(!trk||(trk.kind!=='mel'&&trk.kind!=='drum')){toast('请先点选一条旋律轨或鼓组轨','err');return}
   const isDrum=trk.kind==='drum';
-  if(!regionSel||regionSel.ti!==proj.sel){toast('请先在'+(isDrum?'鼓组':'旋律')+'轨上框选“整数拍”区域：点 🔲 选区（或按住 Shift 拖），例如从第 1 拍起点拖到该拍结尾（4 格）','err');return}
+  if(!regionSel||regionSel.ti!==proj.sel){toast('请先在'+(isDrum?'鼓组':'旋律')+'轨上框选“整数拍”区域：点选区工具（或按住 Shift 拖），例如从第 1 拍起点拖到该拍结尾（4 格）','err','marquee');return}
   const from=regionSel.from,to=regionSel.to;
   if(from%4!==0||(to-from+1)%4!==0){toast('请框选整数拍：起点对齐拍的步 0/4/8/12…，长度是 4 的倍数（1 拍=4 格）','err');return}
   for(let b=from;b<=to;b+=4){
@@ -940,8 +940,8 @@ export function convertRegionRhythm(n){
   structural(true);rebuildEvents();markDirtyUI();
   const what=n?(isDrum?'改成 '+n+' 等分（每音 '+part+'u = 1/'+n+' 拍）':'改成 '+n+' 连音（每音 '+part+'u = 1/'+n+' 拍）'):'还原成网格';
   toast(changed
-    ?'♫ 已把 '+(isDrum?changed+' 个鼓行':changed+' 拍')+what+' · 转换 '+changed+(isDrum?' 行':' 拍')+' / 跳过 '+skipped+' 拍，其余声部不变'
-    :'没有可转换的拍（转换 0 拍 / 跳过 '+skipped+' 拍）：'+(n?(isDrum?'每行需要正好 '+n+' 个点（该拍内）':'每拍准备 '+n+' 个起音，或 1 个完整落在拍内的音（自动同音 '+n+' 等分）'):'选区内没有精确时值音符')+'，再试一次','ok');
+    ?'已把 '+(isDrum?changed+' 个鼓行':changed+' 拍')+what+' · 转换 '+changed+(isDrum?' 行':' 拍')+' / 跳过 '+skipped+' 拍，其余声部不变'
+    :'没有可转换的拍（转换 0 拍 / 跳过 '+skipped+' 拍）：'+(n?(isDrum?'每行需要正好 '+n+' 个点（该拍内）':'每拍准备 '+n+' 个起音，或 1 个完整落在拍内的音（自动同音 '+n+' 等分）'):'选区内没有精确时值音符')+'，再试一次','ok','quaver');
 }
 /* 在格子上把精确时值音符画成“按格内实际位置/时值”的细条标记 */
 export function markRhythmUI(){
@@ -987,7 +987,7 @@ export function cellPaintStart(ev){
   if(ev.altKey){ // Alt+单击 = 给“粘贴”定位一个起点（不画画）
     ev.preventDefault();
     beginRegionSel(ti,s);
-    toast('📍 已定位粘贴起点：第 '+(Math.floor(s/SPB())+1)+' 小节第 '+(s%SPB()+1)+' 步，按 📌粘贴 / Ctrl+V','ok');
+    toast('已定位粘贴起点：第 '+(Math.floor(s/SPB())+1)+' 小节第 '+(s%SPB()+1)+' 步，按「粘贴」/ Ctrl+V','ok','pin');
     return;
   }
   if(ev.shiftKey&&ev.button!==2&&drawTool!=='select'){ // Shift 按住 = 直接框选（任何工具下），拖出去选一段
@@ -1068,7 +1068,7 @@ export function cellPaintEnd(){
   commitEdit();
 }
 /* ---------- 量化：把音符吸附到 1/16 · 1/8 · 1/4 网格（保留力度）
-   支持“区域量化”：先用 🔲 选区（或按住 Shift 拖选）框选一段，再点 🎯 吸附 就只量化这段；
+   支持“区域量化”：先用选区工具（或按住 Shift 拖选）框选一段，再点吸附 就只量化这段；
    没有选区则量化整首。量化前实时预估，量化后把被移动的音符闪绿提示。---------- */
 export function quantScope(){
   const hasSel=regionSel&&regionSel.ti>=0&&!!proj.tracks[regionSel.ti];
@@ -1092,7 +1092,7 @@ export function snapToGrid(s,grid,str,qFrom,qTo){
   return Math.max(qFrom,Math.min(qTo,s+Math.round((t-s)*str)));
 }
 /* 预估：范围内有多少个音符“不在所选网格上”（只读、不修改） */
-// ⚠ 与 applyQuantize / estimateQuantMoves 保持同步
+// 注意：与 applyQuantize / estimateQuantMoves 保持同步
 export function estimateQuantMoves(){
   try{
     const sc=quantScope();
@@ -1138,7 +1138,7 @@ export function updateQuantEst(){
     if(sc.grid===1){el.textContent='选 1/8 或 1/4 才能吸附';el.style.color='var(--mut)';el.title='当前 1/16=原始网格，无法吸附';return}
     const n=estimateQuantMoves();
     const head=sc.hasSel?'选中段':'整曲';
-    el.textContent=n>0?head+' · 预计移 ~'+n+' 处':head+' · ✓ 已对齐';
+    el.innerHTML=n>0?head+' · 预计移 ~'+n+' 处':head+' · '+icon('check')+'已对齐';
     el.style.color=n>0?'var(--good)':'#35b97c';
     el.title=(sc.hasSel?'只量化框选的这一段':'量化整首')+' · '+(sc.grid===2?'1/8':(sc.grid===4?'1/4':'1/16'))+' 网格 · 强度 '+Math.round(sc.str*100)+'%';
   }catch(e){}
@@ -1155,14 +1155,14 @@ export function flashQuantCells(cells){
   });
   setTimeout(()=>{list.forEach(c=>c.classList.remove('qflash'))},1600);
 }
-// ⚠ 与 applyQuantize / estimateQuantMoves 保持同步
+// 注意：与 applyQuantize / estimateQuantMoves 保持同步
 export function applyQuantize(){
   const sc=quantScope();
   const {hasSel,qFrom,qTo,grid,str,S}=sc;
   if(grid===1){toast('当前网格选的是 1/16（原样），无需吸附','ok');return}
   const need=estimateQuantMoves();
   if(need===0){
-    toast('✓ '+(hasSel?'选中区域内':'当前音符')+'都已在 '+ (grid===2?'1/8':(grid===4?'1/4':'1/16')) +' 网格上，无需移动','ok');
+    toast((hasSel?'选中区域内':'当前音符')+'都已在 '+ (grid===2?'1/8':(grid===4?'1/4':'1/16')) +' 网格上，无需移动','ok','check');
     return;
   }
   beginEdit();
@@ -1232,7 +1232,7 @@ export function applyQuantize(){
   const leftOver=need-moved-merged;
   updateQuantEst();
   const leftTxt=(merged>0?'、去重合并 '+merged+' 处':'')+(leftOver>0?'，'+leftOver+' 处位置放不下已保留':'');
-  toast('🎯 量化完成：'+where+' 内 '+need+' 处离网格 → 移动 '+moved+' 处（绿闪）'+leftTxt+' · '+gName+' · 强度 '+Math.round(str*100)+'%','ok');
+  toast('量化完成：'+where+' 内 '+need+' 处离网格 → 移动 '+moved+' 处（绿闪）'+leftTxt+' · '+gName+' · 强度 '+Math.round(str*100)+'%','ok','target');
 }
 export function previewDrum(idx){
   if(!ensureAudio())return;

@@ -1,16 +1,48 @@
 /* [util.js] source: Pro.html 815-850, 923-935, 1073-1088, 2789-2825, 4809-4813 (+ hooks 注册表) */
 /* =========================================================================
+   0a. 线性图标（FEAT-V6/T5 批 2 第二步：JS 侧不再拼 emoji，统一走 icon()）
+   —— 图形本体在 css/layout.css：--ic-* 内联 SVG + .ico-* 的 mask-image；
+      这里只产出结构，颜色由 currentColor 决定（跟随主题/状态色）。
+      用法：el('button','btn',icon('save')+' 保存')、toast('已保存','ok','save')
+   ========================================================================= */
+export function icon(name){
+  const n=String(name==null?'':name).replace(/[^a-zA-Z0-9-]/g,'');
+  return '<span class="ico'+(n?' ico-'+n:'')+'" aria-hidden="true"></span>';
+}
+/* emoji → 图标名：只服务于"还没改用 icon() 的旧调用点"（toast 文案首字符）。
+   本轮授权的 4 个文件已全部改为显式 icon()；这张表让 ai/audio/io 等未授权文件里的
+   旧 toast 文案也不再出现 emoji —— toast() 是唯一收口点，转换集中在这一处。 */
+const EMOJI_ICON={
+  '🎼':'music','🎵':'music','🎶':'music','🎨':'palette','✨':'sparkle','💾':'save','📂':'folder',
+  '🔗':'link','✅':'check','✓':'check','✗':'cross','⚠':'warn','🎬':'clapper','↩':'undo','↪':'redo',
+  '📋':'copy','📌':'paste','🎯':'target','📍':'pin','🎧':'headphones','🔲':'marquee','♫':'quaver',
+  '🥁':'drum','🎤':'mic','🎸':'guitar','🎹':'keys','🌈':'shuffle','🧹':'broom','🎲':'dice','🔥':'flame',
+  '☀':'sun-dim','🧬':'dna','☕':'coffee','🔊':'speaker','🌆':'city','🎷':'sax','🌌':'galaxy','⚙':'gear',
+  '🌙':'moon','🔁':'loop','◉':'metro','☰':'menu','▤':'panel','✕':'close','✎':'pencil','🗑':'trash'
+};
+/* 取出文案开头的 emoji（最多 2 个）→ 图标名数组；返回剩余文案 */
+function _leadIcons(text){
+  const GL=/^([\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}])\u{FE0F}?[\s\u00A0]*/u;
+  const names=[];let t=String(text);
+  for(let i=0;i<2;i++){
+    const m=GL.exec(t);if(!m)break;
+    const nm=EMOJI_ICON[m[1]];if(!nm)break;          // 认不出来就原样保留，不猜
+    names.push(nm);t=t.slice(m[0].length);
+  }
+  return {names,rest:t};
+}
+/* =========================================================================
    0b. 全局错误上报（便于定位问题，不干扰运行）
    ========================================================================= */
 export function showErr(m){
   try{
     console.error('ERR',m);
-    document.title='⚠ '+m;
+    document.title='错误：'+m;
     let b=document.getElementById('errbar');
     if(!b){b=document.createElement('div');b.id='errbar';
       b.style.cssText='position:fixed;left:8px;bottom:8px;z-index:99999;background:#ff3355;color:#fff;font:600 12px ui-monospace,monospace;padding:8px 14px;border-radius:10px;max-width:72vw;box-shadow:0 6px 24px rgba(0,0,0,.5)';
       document.body.appendChild(b);}
-    b.textContent='⚠ '+m;
+    b.innerHTML=icon('warn');b.appendChild(document.createTextNode(String(m)));
   }catch(e){}
 }
 /* =========================================================================
@@ -39,10 +71,12 @@ export function pad2(n){return n<10?'0'+n:''+n}
 export function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
 export function makeRng(seed){const r=mulberry32(seed>>>0);return{next:r,f:()=>r(),i:(a,b)=>Math.floor(r()*(b-a+1))+a,pick(arr){return arr[Math.floor(r()*arr.length)]},chance(p){return r()<p}}}
 
-/* 简易 toast */
-export function toast(msg,kind){
-  msg=String(msg).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const t=el('div','toast'+(kind?' '+kind:''),msg);
+/* 简易 toast（kind: 'ok'|'err'；ic: 可选图标名，见 css/layout.css 的 --ic-*） */
+export function toast(msg,kind,ic){
+  const lead=_leadIcons(msg);
+  const name=ic||lead.names[0]||'';
+  const body=lead.rest.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const t=el('div','toast'+(kind?' '+kind:''),(name?icon(name):'')+body);
   $('#toasts').appendChild(t);
   setTimeout(()=>{t.style.transition='all .3s';t.style.opacity='0';t.style.transform='translateY(6px)';setTimeout(()=>t.remove(),320)},2600);
 }
@@ -78,7 +112,11 @@ export function exportProgressStart(text){
   try{
     const el=exportProgressElEnsure();
     const txt=el.querySelector('#epTxt');
-    if(txt)txt.textContent=text;
+    if(txt){
+      const lead=_leadIcons(text);
+      txt.innerHTML=lead.names.map(icon).join('')+
+        lead.rest.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
     exportProgressSet(0);
   }catch(e){}
 }
@@ -96,7 +134,7 @@ export function exportProgressStop(ok){
     if(exportProgressEl){
       exportProgressSet(100);
       const pctEl=exportProgressEl.querySelector('#epPct');
-      if(pctEl)pctEl.textContent=ok?'完成 ✓':'失败 ✗';
+      if(pctEl)pctEl.innerHTML=icon(ok?'check':'cross')+(ok?'完成':'失败');
       const pe=exportProgressEl; // 捕获本次的进度条元素：后续导出可能已把 exportProgressEl 置空，回调里不能再解引用模块变量
       setTimeout(()=>{ if(!pe)return; pe.style.transition='opacity .3s'; pe.style.opacity='0'; setTimeout(()=>{ pe.remove(); if(exportProgressEl===pe)exportProgressEl=null; },320)},ok?400:900);
     }

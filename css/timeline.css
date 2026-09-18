@@ -2,13 +2,14 @@
 /* ---------- 时间线 ---------- */
 .stageTop{display:flex;align-items:center;gap:10px;padding:10px 16px 8px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .stageTop .t1{font-size:12px;color:var(--mut);margin-right:auto;display:flex;gap:8px;align-items:center}
-.keyChip{font-size:11px;color:var(--acc);border:1px solid color-mix(in srgb,var(--acc) 40%, transparent);padding:3px 9px;border-radius:20px;
-  background:color-mix(in srgb,var(--acc) 8%, transparent)}
+.keyChip{font-size:11px;color:var(--acc);border:1px solid rgba(var(--acc-rgb),.4);padding:3px 9px;border-radius:20px;
+  background:rgba(var(--acc-rgb),.08)}
 .timeline{flex:1;overflow:auto;position:relative;background:
-  linear-gradient(180deg,color-mix(in srgb,var(--txt) 2%, transparent),transparent 40%),
-  repeating-linear-gradient(0deg,color-mix(in srgb,var(--txt) 2%, transparent) 0 1px,transparent 1px 3px);min-height:0}
+  linear-gradient(180deg,rgba(var(--txt-rgb),.02),transparent 40%),
+  repeating-linear-gradient(0deg,rgba(var(--txt-rgb),.02) 0 1px,transparent 1px 3px);min-height:0}
 .tlInner{padding:8px 16px 12px;min-width:min-content}.emptyTip{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--dim);pointer-events:none;text-align:center}
-.emptyTip .big{font-size:52px;filter:drop-shadow(0 0 24px color-mix(in srgb,var(--acc) 35%, transparent))}
+/* 空态图标：尺寸与图标本体在 layout.css 的 .emptyTip .big（mask 图标）里 —— 原 font-size:52px 会覆盖
+   layout.css 的 font-size:0 把 emoji 放出来，且 drop-shadow 属批 1 已废弃的辉光，故整条移除 */
 .emptyTip b{color:var(--mut);font-size:15px}
 .hint{font-size:12px;color:var(--dim);line-height:1.9}
 
@@ -16,16 +17,16 @@
 /* ruler：吸顶，不随编辑区上下滚动；左侧空白格随左侧名称列一起冻结 */
 .ruler{display:grid;height:26px;border-radius:var(--r-xs);margin-bottom:2px;
   position:sticky;top:0;z-index:6;background:var(--ctl-bg);
-  box-shadow:0 6px 10px -6px color-mix(in srgb,var(--bg0) 70%, transparent)}
+  box-shadow:0 6px 10px -6px rgba(var(--bg0-rgb),.7)}
 .ruler .rl{background:var(--ctl-bg2);color:var(--acc);font-size:11px;font-weight:700;font-family:var(--mono);
   display:flex;align-items:center;justify-content:center;border-right:1px solid var(--line);
   position:sticky;left:0;z-index:7;border-radius:var(--r-xs) 0 0 var(--r-xs)}
 .ruler .rs{background:transparent}
 .ruler .rs.bar{background:var(--ctl-bg);border-top:2px solid var(--acc3);border-right:1px solid var(--line);
-  color:color-mix(in srgb,var(--acc3) 70%, var(--txt));
+  color:var(--ruler-bar-tx);
   font:600 9.5px var(--mono);display:flex;align-items:flex-start;justify-content:center;padding-top:1px}
 .ruler .rs.bar span{transform:translateX(calc(var(--cw)/-2 + 2px))}
-.ruler .rs.beat{background:color-mix(in srgb,var(--txt) 4%, transparent);border-right:1px solid var(--line);box-shadow:inset 0 -3px 0 color-mix(in srgb,var(--acc) 16%, transparent)}
+.ruler .rs.beat{background:rgba(var(--txt-rgb),.04);border-right:1px solid var(--line);box-shadow:inset 0 -3px 0 rgba(var(--acc-rgb),.16)}
 .ruler .rs.plain{background:transparent;border-right:1px solid var(--grid-line2)}
 /* 打点：bar 显示小节号 */
 
@@ -34,7 +35,7 @@
 .tgroup{display:flex;margin-bottom:8px;border-radius:var(--r);background:var(--card);
   border:1px solid transparent;background-clip:padding-box;position:relative;box-shadow:var(--shadow-1),var(--glow)}
 .tgroup::before,.insBox::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;
-  background:linear-gradient(180deg,var(--edging),color-mix(in srgb,var(--line) 85%, transparent));
+  background:linear-gradient(180deg,var(--edging),rgba(var(--line-rgb),.85));
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   mask-composite:exclude;pointer-events:none;z-index:1}
@@ -42,24 +43,24 @@
 .tgMain{flex:1;min-width:0;border-radius:0 var(--r) var(--r) 0}
 .thead{height:34px;display:flex;align-items:center;gap:8px;padding:0 8px 0 10px;cursor:pointer;user-select:none;
   border-bottom:1px solid var(--line);border-radius:0 var(--r) 0 0;
-  background-color:var(--card);background-image:linear-gradient(180deg,color-mix(in srgb,var(--txt) 5%, transparent),transparent);
+  background-color:var(--card);background-image:linear-gradient(180deg,rgba(var(--txt-rgb),.05),transparent);
   position:sticky;top:28px;z-index:4}
-.thead.sel{background-color:var(--sel-bg);background-image:linear-gradient(180deg,color-mix(in srgb,var(--acc) 12%, transparent),transparent)}
+.thead.sel{background-color:var(--sel-bg);background-image:linear-gradient(180deg,rgba(var(--acc-rgb),.12),transparent)}
 /* 表头左侧信息（折叠键/图标/名称/角色/编号）：横向冻结，右侧控件仍随内容滚动 */
 .theadLeft{display:flex;align-items:center;gap:8px;position:sticky;left:0;z-index:2;
   background-color:var(--card);box-shadow:var(--scroll-sh)}
 .thead.sel .theadLeft{background-color:var(--sel-bg)}
 .tgIcon{width:22px;height:22px;border-radius:var(--r-xs);display:flex;align-items:center;justify-content:center;font-size:11px;flex:none}
 .roleTag{font-size:10px;padding:2px 7px;border-radius:20px;flex:none;letter-spacing:.5px;border:1px solid}
-.tname{background:transparent;border:none;color:var(--txt);font-size:13px;font-weight:600;width:120px;padding:3px 5px;
-  border-radius:var(--r-xs);outline:none;transition:all .15s cubic-bezier(.4,0,.2,1)}
-.tname:hover{background:var(--hover)}
-.tname:focus{background:var(--well);box-shadow:0 0 0 1px var(--acc)}
-.hchip{height:23px;min-width:23px;padding:0 5px;font-size:10px;border-radius:var(--r-xs);border:1px solid var(--line2);background:var(--ctl-bg);
+/* 轨道名输入：与 .numInp/.seedRow input 同一套（32 高 / --ctl-bg2 底 / --hair-2 边 / focus 内环） */
+.tname{background:var(--ctl-bg2);border:1px solid var(--hair-2);color:var(--txt);font-size:var(--fs-body);font-weight:600;width:120px;height:var(--h);padding:0 7px;
+  border-radius:var(--r-xs);outline:none;transition:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out)}
+.tname:hover{border-color:var(--sig)}
+.tname:focus{background:var(--ctl-bg2);border-color:var(--sig);box-shadow:inset 0 0 0 2px rgba(var(--acc-rgb),.35)}
+.hchip{height:var(--h-sm);min-width:var(--h-sm);padding:0 7px;font-size:var(--fs-label);border-radius:var(--r-xs);border:1px solid var(--hair-2);background:var(--ctl-bg);
   color:var(--mut);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:2px;flex:none;
-  transition:all .15s cubic-bezier(.4,0,.2,1)}
-.hchip:hover{border-color:var(--acc);color:var(--acc);transform:translateY(-1px)}
-.hchip:active{transform:translateY(0) scale(.98)}
+  transition:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out)}
+.hchip:hover{border-color:var(--sig);color:var(--txt);background:var(--hover)}
 .hchip.on{background:var(--warn);color:var(--on-acc);border-color:var(--warn)}
 .hchip.solo.on{background:var(--good);color:var(--on-acc);border-color:var(--good)}
 .hchip:disabled{opacity:.35}
@@ -68,7 +69,7 @@
 .tgShift .sc{height:21px;min-width:21px;padding:0 3px;font-size:10px}
 .tgShift .octv{font:600 10px var(--mono);color:var(--acc);min-width:24px;text-align:center}
 .tgFill{margin-left:auto;display:flex;align-items:center;gap:5px;flex:none}
-.collapse{transform:rotate(0);transition:.18s}
+.collapse{transform:rotate(0);transition:transform var(--dur-base) var(--ease-in-out)}
 .tgroup.closed .collapse{transform:rotate(-90deg)}
 .tgBody{padding:2px 0 6px}
 .tgroup.closed .tgBody{display:none}
@@ -80,27 +81,32 @@
   font:600 9.5px var(--mono);color:var(--mut);white-space:nowrap;border-bottom:1px solid var(--grid-line);user-select:none;cursor:pointer;
   position:sticky;left:4px;z-index:3;background:var(--card);box-shadow:var(--scroll-sh)}
 .lab:hover{color:var(--acc)}
-.lab.root{color:color-mix(in srgb,var(--acc) 72%, var(--txt))}
+.lab.root{color:var(--lab-root)}
 .lab.off{color:var(--dim)}
 .lab .fl{color:var(--dim)}
-/* 网格格：底色一律由 --txt 与 --card 派生 → 浅色主题自动反转（不支持 color-mix 时用前面的硬编码回退） */
-.pc{height:100%;position:relative;border-right:1px solid var(--grid-line);border-bottom:1px solid var(--grid-line);cursor:crosshair;transition:background .05s}
-.mel .pc{background:rgba(255,255,255,.012);background:color-mix(in srgb,var(--txt) 3%, var(--card))}
-.mel .pc.beat{background:rgba(255,255,255,.03);background:color-mix(in srgb,var(--txt) 7%, var(--card))}
-.mel .pc.bar{background:rgba(255,255,255,.045);background:color-mix(in srgb,var(--txt) 11%, var(--card))}
-.drum .pc{background:rgba(255,255,255,.018);background:color-mix(in srgb,var(--txt) 4%, var(--card))}
-.drum .pc.beat{background:rgba(255,255,255,.045);background:color-mix(in srgb,var(--txt) 9%, var(--card))}
-.drum .pc.bar{background:rgba(255,255,255,.07);background:color-mix(in srgb,var(--txt) 14%, var(--card))}
-.pc:hover{box-shadow:inset 0 0 0 1px rgba(255,255,255,.22);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--txt) 30%, transparent)}
-.pc.on{background:var(--tc);background:color-mix(in srgb,var(--tc) 92%, var(--card));box-shadow:var(--cell-shadow)}
+/* 网格格：底色一律由 --txt-rgb 的半透明罩叠在 --card 上派生 → 浅色主题自动反转。
+   （FEAT-V6/T4：原为 color-mix(in srgb,var(--txt) N%, var(--card))，1.2 万格逐格做混色，
+     切主题时同步重算 515ms；改成 rgba(var(--txt-rgb),N) 后为零计算。） */
+.pc{height:100%;position:relative;border-right:1px solid var(--grid-line);border-bottom:1px solid var(--grid-line);cursor:crosshair;transition:background-color var(--dur-instant) var(--ease-out)}
+.mel .pc{background:rgba(var(--txt-rgb),.03)}
+.mel .pc.beat{background:rgba(var(--txt-rgb),.07)}
+.mel .pc.bar{background:rgba(var(--txt-rgb),.11)}
+.drum .pc{background:rgba(var(--txt-rgb),.04)}
+.drum .pc.beat{background:rgba(var(--txt-rgb),.09)}
+.drum .pc.bar{background:rgba(var(--txt-rgb),.14)}
+.pc:hover{box-shadow:inset 0 0 0 1px rgba(var(--txt-rgb),.3)}
+/* 音符格：直接用轨道色（原来再和 --card 混 8%，但 --tc 是 JS 注入的每轨色，
+   混色会让每格依赖主题变量 → 切主题时全部失效重算）。视觉差异 8%，用 inset 描边补偿。 */
+.pc.on{background:var(--tc);box-shadow:var(--cell-shadow)}
 /* 拍/小节线的底色规则权重更高（.mel .pc.beat = 3 类），这里补同权重的音符色，
    否则拍线上的音符会被网格底色盖掉（主题派生色也一并生效） */
-.mel .pc.on,.drum .pc.on{background:var(--tc);background:color-mix(in srgb,var(--tc) 92%, var(--card))}
+.mel .pc.on,.drum .pc.on{background:var(--tc)}
 .pc.on.velH{filter:brightness(1.25);
-  box-shadow:inset 0 0 8px color-mix(in srgb,var(--txt) 45%, transparent),inset 0 0 0 1px color-mix(in srgb,var(--txt) 40%, transparent)}
-.pc.on.playing{animation:blink .18s ease}
-@keyframes blink{0%{filter:brightness(1.9)}100%{filter:brightness(1.2)}}
-.pc.playCol{outline:1px solid color-mix(in srgb,var(--txt) 55%, transparent);outline-offset:-1px;z-index:2}
+  box-shadow:inset 0 0 8px rgba(var(--txt-rgb),.45),inset 0 0 0 1px rgba(var(--txt-rgb),.4)}
+/* 正在播放的那一格：原来是 filter:brightness 闪（每帧重绘整格），改成 opacity 呼吸 —— 合成层动画，几乎零成本 */
+.pc.on.playing{animation:blink var(--dur-fast) var(--ease-in-out) infinite alternate}
+@keyframes blink{from{opacity:1}to{opacity:.62}}
+.pc.playCol{outline:1px solid rgba(var(--txt-rgb),.55);outline-offset:-1px;z-index:2}
 .melRowH{height:16px}
 .melRows{padding:4px 0}
 .drumRowH{height:24px}
@@ -138,8 +144,8 @@
   .seekLbl{min-width:70px}
   .tabs button{padding:7px 10px;font-size:12px}
   .panel{padding:10px}
-  .miniSel{height:30px;font-size:13px}
-  .btn{min-height:34px;font-size:13px}
+  .miniSel{height:var(--h);font-size:13px}
+  .btn{min-height:var(--h-lg);font-size:13px}
   .acts{flex-wrap:wrap}
   .stageRowLbl{min-width:38px}
   .knobGrp{flex-wrap:wrap}

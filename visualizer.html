@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 跨文档 View Transition 的 opt-in 双保险（批 C 诊断）：与 css/theme.css 的 @view-transition{navigation:auto}
+     等价、互相兼容；这是 W3C 推荐的早期写法，Chromium 111+ 就认，旧浏览器忽略本行不会报错 -->
+<meta name="view-transition" content="same-origin">
 <title>音乐可视化 · 智能音乐工坊 PRO</title>
 <link rel="stylesheet" href="./css/theme.css">
 <link rel="stylesheet" href="./css/viz.css">
@@ -13,8 +16,20 @@
 </head>
 <body>
 
+<!-- 顶栏（批 B 简洁化）：12 个可见元素 → 9 个
+     · 返回按钮收成纯图标（文字进 .vz-sr，title/aria-label 保留）
+     · 时间只在大时钟一处显示（#vzTime 保留 id 与更新逻辑，视觉隐藏）
+     · 「渲染器」「渲染长度」的中文标签进 .vz-sr（不占位，aria-label/title 保留）
+     · 渲染长度移入齿轮菜单（#vzLen 原样保留，功能不变）
+     · 「取消」只在渲染/分析期间出现（元素与逻辑保留，data-busy 控制） -->
 <header class="vz-top">
-  <a class="vz-back" id="vzBack" href="./index.html"><span class="vz-ico" aria-hidden="true">&#8249;</span>返回主应用</a>
+  <!-- 品牌小 logo（批 C 第一部分）：与主应用 .logo 共用 view-transition-name:app-logo（css/theme.css），
+       跨页跳转时由它完成"同一个应用换视图"的连续感 -->
+  <div class="vz-logo" aria-hidden="true"></div>
+  <a class="vz-back" id="vzBack" href="./index.html" title="返回主应用" aria-label="返回主应用">
+    <span class="vz-ico" aria-hidden="true">&#8249;</span>
+    <span class="vz-sr">返回主应用</span>
+  </a>
   <div class="vz-sep"></div>
   <button class="vz-play" id="vzPlay" title="播放 / 暂停 (空格)" disabled>
     <svg id="vzPlayIco" class="vz-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
@@ -27,27 +42,40 @@
   </button>
   <button class="vz-cancel" id="vzCancel" title="取消正在进行的离线渲染" disabled>取消</button>
   <div class="vz-pos">
-    <div class="vz-posMain" id="vzPosMain">0:00</div>
+    <div class="vz-posMain" id="vzPosMain">0:00 / 0:00</div>
     <div class="vz-posSub" id="vzPosSub">未载入工程</div>
   </div>
   <input class="vz-range" id="vzSeek" type="range" min="0" max="1000" value="0" step="1" aria-label="播放进度" disabled>
-  <span class="vz-time" id="vzTime">0:00 / 0:00</span>
+  <!-- 兼容保留：#vzTime 的 id 与文本更新逻辑仍在（main.js paint() 会写），但视觉上隐藏 ——
+       时间统一由左侧大时钟显示"当前 / 总长"，避免同一屏报三次时间 -->
+  <span class="vz-time vz-hide" id="vzTime" aria-hidden="true">0:00 / 0:00</span>
   <div class="vz-sep"></div>
-  <label class="vz-lab">渲染器
-    <select class="vz-select" id="vzPick" aria-label="渲染器切换">
+  <label class="vz-lab">
+    <span class="vz-sr">渲染器</span>
+    <select class="vz-select" id="vzPick" aria-label="渲染器切换" title="渲染器切换（8 种可视化）">
       <option value="waveform">实时波形</option>
     </select>
   </label>
-  <label class="vz-lab">渲染长度
-    <select class="vz-select" id="vzLen" aria-label="预渲染长度">
-      <option value="30" selected>30 秒</option>
-      <option value="60">60 秒</option>
-      <option value="90">90 秒</option>
-      <option value="full">全曲</option>
-    </select>
-  </label>
+  <div class="vz-menuWrap" id="vzSetWrap">
+    <button class="vz-play vz-setBtn" id="vzSetBtn" title="设置：渲染长度（默认 30 秒）" aria-label="设置" aria-haspopup="true" aria-expanded="false">
+      <span class="vz-setIco" aria-hidden="true"></span>
+    </button>
+    <div class="vz-menu" id="vzSetMenu" role="menu" aria-label="设置">
+      <div class="vz-menuItem">
+        <label class="vz-menuLab">渲染长度
+          <select class="vz-select" id="vzLen" aria-label="预渲染长度" title="预渲染长度：越短越快看到效果，「全曲」会渲染整首（长曲较慢）">
+            <option value="30" selected>30 秒</option>
+            <option value="60">60 秒</option>
+            <option value="90">90 秒</option>
+            <option value="full">全曲</option>
+          </select>
+        </label>
+      </div>
+      <div class="vz-menuHint">预览用 30 秒足够；切到「全曲」后才能分析整首（封面 / 指纹）。</div>
+    </div>
+  </div>
   <button class="vz-btn" id="vzCoverBtn" title="分析整曲并生成专辑封面（预览 / 下载 PNG）">
-    <!-- 图标由 coverUI 运行时填入：emoji 能渲染就用 🎨，否则退回几何符号（Windows 下 emoji 缺字形会变方块） -->
+    <!-- 图标本体在 css/viz.css 的 .vz-btn-ico（mask 线性图标）；coverUI 运行时写入的字符已被 font-size:0 隐掉 -->
     <span class="vz-btn-ico" id="vzCoverIco" aria-hidden="true"></span>
     <span class="vz-btn-txt">生成封面</span>
   </button>
@@ -63,9 +91,23 @@
   </div>
   <div class="vz-overlay off" id="vzCoverModal">
     <div class="vz-card vz-cover-card">
+      <!-- 弹窗头部（批 B）：主操作「下载 PNG」上移到标题行，控件行因此少一行；
+           2× 高清与"以 2× 下载"收进右侧 ▾ 菜单（#vzCoverHd 原样保留） -->
       <div class="vz-cover-head">
         <span class="vz-cover-title">生成封面</span>
         <span class="vz-cover-note" id="vzCoverNote"></span>
+        <button type="button" class="vz-btn acc vz-sm" id="vzCoverDownload" title="导出 PNG（当前分辨率）">下载 PNG</button>
+        <div class="vz-menuWrap">
+          <button type="button" class="vz-btn vz-sm vz-dlMore" id="vzDlMore" title="下载与导出选项" aria-label="下载选项" aria-haspopup="true" aria-expanded="false">
+            <span class="vz-caret" aria-hidden="true"></span>
+          </button>
+          <div class="vz-menu vz-menuRight" id="vzDlMenu" role="menu" aria-label="下载选项">
+            <label class="vz-menuItem vz-hdItem" title="以 2× 分辨率离屏重绘后导出（封面 1600×1600 / 指纹 3840×800 / 分享卡片 2400×1260）">
+              <input type="checkbox" id="vzCoverHd"> 高清导出 2×
+            </label>
+            <button type="button" class="vz-mi" id="vzDl2x" title="临时按 2× 分辨率导出一次（不改动上面的勾选状态）">以 2× 分辨率下载</button>
+          </div>
+        </div>
         <button type="button" class="vz-cover-x" id="vzCoverClose" title="关闭（Esc）">×</button>
       </div>
       <div class="vz-cover-kinds" id="vzCoverKinds">
@@ -81,29 +123,26 @@
         <button type="button" data-style="bricks">能量砖阵</button>
         <button type="button" data-style="ribbon">波形缎带</button>
       </div>
+      <!-- 一行控件：曲名 + 种子 + 换一张（都是"出图输入"，合并后少一行） -->
       <div class="vz-cover-actions">
-        <label class="vz-cover-seed wide">曲名
+        <label class="vz-cover-seed wide" title="曲名（会打印在图上）">
+          <span class="vz-sr">曲名</span>
           <input type="text" id="vzCoverTitle" maxlength="40" placeholder="未命名工程" autocomplete="off">
         </label>
-      </div>
-      <div class="vz-cover-actions">
-        <label class="vz-cover-seed">种子
+        <label class="vz-cover-seed" title="种子：同一工程 + 同一种子 → 出图完全一致">
+          种子
           <input type="number" id="vzCoverSeed" min="0" max="1000000000" step="1" value="1">
         </label>
-        <label class="vz-cover-hd" title="以 2× 分辨率离屏重绘后导出（封面 1600×1600 / 指纹 3840×800）">
-          <input type="checkbox" id="vzCoverHd"> 高清导出 2×
-        </label>
-        <span class="vz-spacer"></span>
-        <button type="button" class="vz-btn" id="vzCoverShuffle" title="换一个种子，换一张图（同一工程同一种子出图完全一致）">换一张</button>
-        <button type="button" class="vz-btn acc" id="vzCoverDownload" title="导出 PNG">下载 PNG</button>
+        <button type="button" class="vz-btn vz-sm" id="vzCoverShuffle" title="换一个种子，换一张图（同一工程同一种子出图完全一致）">换一张</button>
       </div>
     </div>
   </div>
-  <div class="vz-fps" id="vzFps">-- FPS</div>
+  <div class="vz-fps" id="vzFps" title="帧率（F 键显示/隐藏；低于 45 会自动出现）">-- FPS</div>
 </main>
 
 <footer class="vz-bottom">
   <div class="vz-bar">
+    <!-- 提示行（批 B）：可见文本只有「状态徽标 + 关键量」，长详情进 title（悬停可看，信息不丢） -->
     <span class="vz-hint" id="vzHint">V1 步骤 2/7：正在初始化数据层…</span>
     <span class="vz-spacer"></span>
     <span class="vz-lab" id="vzRenderLab">预渲染</span>

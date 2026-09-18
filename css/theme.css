@@ -1,137 +1,398 @@
-/* [theme.css] source: Pro.html lines 8-134, 540-564 (verbatim) */
-/* ============================================================
-   智能音乐工坊 PRO —— 深色录音棚设计系统
-   ============================================================ */
-/* 默认主题 studio（录音棚）——:root 即主题 studio */
+/* [theme.css] FEAT-V6/T2（批 1）：全站设计 token —— 冷灰基底 + 单一信号色 + 锐利直角 + 1px 细线。
+   ============================================================================
+   设计语言（两页共用，主应用与可视化页同一套）：
+   1) 基底：中性冷灰阶梯（不再带明显蓝/暖偏），6 套主题共用同一套灰阶关系，
+      主题之间的差异**只由信号色与少量表现层（glow / edging / hair）承担**。
+   2) 信号色：每套主题只有 1 个色相（--sig = --acc）。--acc2/--acc3 是同色相的暗步/亮步，
+      供"需要两三档"的地方使用（渲染器的 theme 配色、chip 选中底、图表渐变），不再是第二/第三个色相。
+   3) 对比度：--txt/--bg0 ≥ 7:1、--txt/--card ≥ 7:1、--mut 与 --dim 对 --card ≥ 4.5:1（小字也达 AA）。
+   4) 层级：--mut（标签）与 --dim（元信息/技术标签）拉开到可辨识的亮度差；颜色只承担层级，不靠加粗。
+   5) 无辉光、无彩虹渐变：--glow 仅 cyber 非零；--grad/--grad2 是"信号色 → 同色 62~78% 透明"的弱渐变。
+   6) 尺度 token（字号阶梯 / 间距 / 时长缓动 / 控件高度 / 圆角）只在 :root 定义一次，主题块不重复。
+   ============================================================================
+   外部依赖（**改名/改类型会坏功能，务必保持**）：
+   · JS 读色：--acc / --acc2 / --acc3 / --txt（js/viz/renderers/*.js 用正则解析，必须是字面 hex 或 rgb()，
+     不能写成 color-mix()/var()，否则渲染器取色失败会回落到内置默认色）。
+   · JS 读长度：--labW（js/ui/seek.js 用 parseFloat 取像素值，必须保留 px 单位）。
+   · 主题切换：JS 只切 documentElement 的 data-theme，本文件必须为 6 套主题**全覆盖**同一批变量。
+   ============================================================================
+   Token 分两类：
+   A. 每套主题必须全覆盖（下方 6 个主题块结构完全一致，便于逐行比对）；
+   B. 仅 :root 定义一次的尺度 token（字号/间距/时长/高度/圆角），主题块里不出现。
+   ============================================================================ */
+
+/* ============================== A. 主题：studio（默认·录音棚冷灰） ============================== */
 :root{
-  /* 基础色板 */
-  --bg0:#06080f; --bg1:#0b101d; --bg2:#101828; --panel:#0e1526;
-  --card:#121b30; --card2:#16203a; --line:#1d2a47; --line2:#2a3b63;
-  --txt:#e9eefb; --mut:#8fa1c6; --dim:#7a8cb4;
-  --acc:#00d9ff; --acc2:#7c6cff; --acc3:#ff7ac8; --good:#3dffa8; --warn:#ffc46b; --bad:#ff6b81;
-  --grad:linear-gradient(100deg,#7c6cff,#3aa0ff 45%,#22ffd6);
-  --grad2:linear-gradient(100deg,#ff6b81,#ff7ac8 45%,#7c6cff);
-  /* 表现层（以下变量各主题必须全覆盖） */
-  --shadow-1:0 6px 18px rgba(0,0,0,.25);      /* 卡片 */
-  --shadow-2:0 14px 44px rgba(0,0,0,.55);     /* 浮层 */
-  --shadow-3:0 26px 72px rgba(0,0,0,.66);     /* 弹窗 / toast */
-  --glass:rgba(16,24,40,.62); --glass-blur:12px;
-  --hover:rgba(255,255,255,.06);
-  --ring:#00d9ff;
-  --grid-line:#101b30; --grid-line2:#131d31;  /* 网格线（浅色主题需反转） */
-  --well:rgba(0,0,0,.25);                     /* 内凹底 */
-  --ctl-bg:#0d1526; --ctl-bg2:#18233c;        /* 控件实底 */
-  --sel-bg:#16233a;                           /* 选中行底色 */
-  --on-acc:#03121c;                           /* 强调色块上的文字（反色） */
-  --on-txt:#dff8ff;                           /* 选中态文字 */
-  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.28),inset 0 0 0 1px rgba(255,255,255,.18);
-  --edging:rgba(255,255,255,.14);             /* 卡片渐隐描边亮边 */
-  --scroll-sh:8px 0 10px -8px rgba(0,0,0,.7); /* 冻结列投影 */
-  --piano:rgba(10,15,26,.95); --piano2:rgba(7,10,18,.98);
-  --glow:0 0 0 0 rgba(0,0,0,0);               /* 卡片外发光（cyber 用） */
-  --note-ink:#0b1220;                         /* 音符格压深基准 */
+  /* —— 基底（中性冷灰，无蓝偏） —— */
+  --bg0:#0a0b0d; --bg1:#0e1013; --bg2:#13161a; --panel:#0d0f12;
+  --card:#13161a; --card2:#191d22;
+  --line:#23272d; --line2:#33373d;                  /* 1px 分割线：常态 / 强化 */
+  --hair:rgba(255,255,255,.07);                     /* 细网格线（弱） */
+  --hair-2:rgba(255,255,255,.14);                   /* 细网格线（强） */
+  --grid-line:#1b1e23; --grid-line2:#23272d;        /* 时间线网格（浅色主题需反转） */
+  /* —— 文字层级（4 档，冷灰中性） —— */
+  --txt:#eceef1; --mut:#9ba1ab; --dim:#80868f;
+  /* —— 单一信号色 + 同色暗步/亮步 —— */
+  --sig:#18d1ff;
+  --acc:#18d1ff; --acc2:#12829e; --acc3:#77def9;
+  /* —— 语义色（与主题无关，仅 cream 为浅底加深） —— */
+  --good:#35c98f; --warn:#e8b13f; --bad:#e5484d;
+  /* —— 弱渐变（信号色 → 同色 78%），不再是三色霓虹 —— */
+  --grad:linear-gradient(100deg,#18d1ff,rgba(24,209,255,.78));
+  --grad2:linear-gradient(100deg,rgba(24,209,255,.62),#18d1ff);
+  /* —— 阴影（紧、实、无明显扩散） —— */
+  --shadow-1:0 1px 2px rgba(0,0,0,.5);
+  --shadow-2:0 8px 24px rgba(0,0,0,.55);
+  --shadow-3:0 20px 48px rgba(0,0,0,.62);
+  /* —— 玻璃层 / 交互底 —— */
+  --glass:rgba(14,16,19,.72); --glass-blur:14px;
+  --hover:rgba(255,255,255,.07);
+  --well:rgba(0,0,0,.30);
+  --ctl-bg:#0d0f12; --ctl-bg2:#1b1f24; --sel-bg:#1c2026;
+  --ring:#18d1ff;                                   /* 焦点环 = 信号色 */
+  --on-acc:#05070a; --on-txt:#f2f4f6;               /* 信号色块上的字 / 选中态的字 */
+  /* —— 其它表现层 —— */
+  --edging:rgba(255,255,255,.10);
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.10);
+  --scroll-sh:8px 0 10px -8px rgba(0,0,0,.7);
+  --piano:rgba(12,13,16,.96); --piano2:rgba(8,9,11,.98);
+  --glow:0 0 0 0 rgba(0,0,0,0);
+  --note-ink:#0b0c0e;
+  /* —— 预混 token（FEAT-V6/T4：color-mix 静态化。切主题时要重算上万节点，
+        原来每格 6 条 color-mix 会让同步重算达 515ms；这里把它们变成"常量"）—— */
+  --txt-rgb:236,238,241; --line-rgb:35,39,45; --bg0-rgb:10,11,13;
+  --acc-rgb:24,209,255; --acc2-rgb:18,130,158; --acc3-rgb:119,222,249;
+  --good-rgb:53,201,143; --bad-rgb:229,72,77; --note-ink-rgb:11,12,14;
+  --lab-root:#53d9fb; --ruler-bar-tx:#9ae3f7;
+
+  /* ============================ B. 尺度 token（全站一次定义） ============================ */
+  /* 字号阶梯：极端对比（44 超大 ↔ 9 技术标签），中间只留 4 档，避免"15 档差 0.5px" */
+  --fs-display:44px; --fs-h1:22px; --fs-h2:15px; --fs-body:12.5px; --fs-label:10px; --fs-micro:9px;
+  --lh-tight:1.15; --lh-base:1.5;
+  --ls-wide:1.2px; --ls-tech:2px;                   /* 技术标签字距 */
+  /* 间距阶梯（4 的倍数） */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --gut:16px; --gap-ctl:8px;                        /* 页面左右栏距 / 控件之间 */
+  /* ============================ C. 动效 token（FEAT-V6/T5 批 3 动效系统） ============================
+     时长按 100/300/500 Rule 分五档；**退出动画 = 进入时长 × 0.75**（在组件里写死为下一档，
+     例：菜单进入 --dur-base 280ms → 退出 --dur-fast 200ms ≈ 0.71×）。
+     缓动一律用这 5 个具名曲线，不用 ease / linear / 弹跳曲线（2015 年观感）。 */
+  --dur-instant:120ms;  /* 即时反馈：按下、开关、颜色 */
+  --dur-fast:200ms;     /* 快速状态：hover、focus ring；也是退出动画基准（280×0.75≈200） */
+  --dur-base:280ms;     /* 状态变化：菜单、tooltip、面板 */
+  --dur-slow:420ms;     /* 布局变化：手风琴、模态、抽屉 */
+  --dur-enter:560ms;    /* 入场：页面加载、英雄区 */
+  --dur-flash:1200ms;   /* 功能反馈：量化闪绿（需可读，故比 slow 长；唯一的第 6 档，见汇报偏差） */
+  --ease-out:cubic-bezier(.16,1,.3,1);         /* 元素进入（默认） */
+  --ease-in:cubic-bezier(.7,0,.84,0);          /* 元素离开 */
+  --ease-in-out:cubic-bezier(.65,0,.35,1);     /* 状态切换（下划线滑动等） */
+  --ease-out-quart:cubic-bezier(.25,1,.5,1);   /* 平滑、精致（列表交错） */
+  --ease-out-quint:cubic-bezier(.22,1,.36,1);  /* 戏剧性（粒子呼吸） */
+  --ease-linear:cubic-bezier(0,0,1,1);         /* 恒速：只给旋转弧用（数学上等价 linear，但不用关键字） */
+  /* 控件高度（统一 3 档） */
+  --h-lg:40px; --h:32px; --h-sm:26px;
+  /* 圆角：锐利直角（机核风），不再有 12px 软卡片 */
+  --r:2px; --r-sm:2px; --r-xs:2px; --r-pill:2px;
+  --mono:ui-monospace,'Cascadia Code',Consolas,monospace;
   --cw:24px; --labW:96px;
-  --r:12px; --r-sm:9px; --r-xs:6px; --mono:ui-monospace,'Cascadia Code',Consolas,monospace;
   font-size:14px;
 }
-/* ---- 主题：午夜（更冷更深，对比更强） ---- */
+
+/* ============================== 主题：midnight（更深、更静） ============================== */
 :root[data-theme="midnight"]{
-  --bg0:#03040a; --bg1:#060a14; --bg2:#0a1020; --panel:#080e1c;
-  --card:#0b1222; --card2:#0e1729; --line:#16203a; --line2:#22304f;
-  --txt:#f2f6ff; --mut:#93a4c8; --dim:#8496bd;
-  --acc:#35e0ff; --acc2:#6a5cff; --acc3:#ff6fd0; --good:#34ffb0; --warn:#ffc061; --bad:#ff5f7a;
-  --grad:linear-gradient(100deg,#7a6cff,#2b8cff 45%,#25f5d8);
-  --grad2:linear-gradient(100deg,#ff5f7a,#ff6fd0 45%,#6a5cff);
-  --shadow-1:0 6px 18px rgba(0,0,0,.45); --shadow-2:0 16px 48px rgba(0,0,0,.7); --shadow-3:0 28px 76px rgba(0,0,0,.8);
-  --glass:rgba(8,14,28,.7); --glass-blur:14px; --hover:rgba(255,255,255,.07); --ring:#35e0ff;
-  --grid-line:#0c1424; --grid-line2:#0f1a2c; --well:rgba(0,0,0,.4);
-  --ctl-bg:#070d1a; --ctl-bg2:#101a30; --sel-bg:#111d38;
-  --on-acc:#01050e; --on-txt:#e6f8ff;
-  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.2);
-  --edging:rgba(255,255,255,.16); --scroll-sh:8px 0 10px -8px rgba(0,0,0,.85);
-  --piano:rgba(6,10,20,.96); --piano2:rgba(3,5,12,.99); --glow:0 0 0 0 rgba(0,0,0,0); --note-ink:#060a14;
-  --r-sm:9px; --r-xs:6px;
+  --bg0:#060709; --bg1:#0a0b0e; --bg2:#101216; --panel:#080a0d;
+  --card:#0e1014; --card2:#14171c;
+  --line:#1e2127; --line2:#2c3038;
+  --hair:rgba(255,255,255,.08); --hair-2:rgba(255,255,255,.15);
+  --grid-line:#16191e; --grid-line2:#1e2127;
+  --txt:#f0f2f5; --mut:#9aa1ac; --dim:#7f8792;
+  --sig:#5a7cff;
+  --acc:#5a7cff; --acc2:#384d9d; --acc3:#9eb1fa;
+  --good:#2fbe86; --warn:#dfa93a; --bad:#e04a52;
+  --grad:linear-gradient(100deg,#5a7cff,rgba(90,124,255,.78));
+  --grad2:linear-gradient(100deg,rgba(90,124,255,.62),#5a7cff);
+  --shadow-1:0 1px 2px rgba(0,0,0,.6);
+  --shadow-2:0 10px 28px rgba(0,0,0,.66);
+  --shadow-3:0 22px 54px rgba(0,0,0,.72);
+  --glass:rgba(10,11,14,.76); --glass-blur:16px;
+  --hover:rgba(255,255,255,.08);
+  --well:rgba(0,0,0,.42);
+  --ctl-bg:#080a0d; --ctl-bg2:#171b21; --sel-bg:#1a1f24;
+  --ring:#5a7cff;
+  --on-acc:#04060a; --on-txt:#f4f6f9;
+  --edging:rgba(255,255,255,.11);
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.42),inset 0 0 0 1px rgba(255,255,255,.11);
+  --scroll-sh:8px 0 10px -8px rgba(0,0,0,.85);
+  --piano:rgba(8,10,13,.97); --piano2:rgba(5,6,8,.99);
+  --glow:0 0 0 0 rgba(0,0,0,0);
+  --note-ink:#07080b;
+  --txt-rgb:240,242,245; --line-rgb:30,33,39; --bg0-rgb:6,7,9;
+  --acc-rgb:90,124,255; --acc2-rgb:56,77,157; --acc3-rgb:158,177,250;
+  --good-rgb:47,190,134; --bad-rgb:224,74,82; --note-ink-rgb:7,8,11;
+  --lab-root:#849dfc; --ruler-bar-tx:#b7c5f9;
 }
-/* ---- 主题：赛博（青绿 + 品红霓虹，边框发光） ---- */
+
+/* ============================== 主题：cyber（信号色 + 霓虹描边，唯一保留辉光） ============================== */
 :root[data-theme="cyber"]{
-  --bg0:#03070a; --bg1:#05100f; --bg2:#071a1a; --panel:#061413;
-  --card:#0a1c1c; --card2:#0d2422; --line:#12463c; --line2:#1b6f58;
-  --txt:#e6fff8; --mut:#7fd8c4; --dim:#4a8f80;
-  --acc:#00ffc3; --acc2:#ff2fd0; --acc3:#c6ff3d; --good:#5cff9d; --warn:#ffd93d; --bad:#ff4d6d;
-  --grad:linear-gradient(100deg,#ff2fd0,#00ffc3 55%,#c6ff3d);
-  --grad2:linear-gradient(100deg,#c6ff3d,#00ffc3 45%,#ff2fd0);
-  --shadow-1:0 6px 18px rgba(0,0,0,.5); --shadow-2:0 14px 44px rgba(0,0,0,.7); --shadow-3:0 26px 72px rgba(0,0,0,.8);
-  --glass:rgba(5,18,17,.66); --glass-blur:14px; --hover:rgba(0,255,195,.09); --ring:#00ffc3;
-  --grid-line:#0b2a24; --grid-line2:#0e332a; --well:rgba(0,0,0,.45);
-  --ctl-bg:#04100f; --ctl-bg2:#0d2e28; --sel-bg:#0e352c;
-  --on-acc:#001410; --on-txt:#dffff6;
-  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.25);
-  --edging:rgba(0,255,195,.4); --scroll-sh:8px 0 10px -8px rgba(0,0,0,.85);
-  --piano:rgba(4,14,14,.96); --piano2:rgba(2,8,8,.99); --glow:0 0 14px rgba(0,255,195,.22); --note-ink:#04100f;
-  --r-sm:9px; --r-xs:6px;
+  --bg0:#05070a; --bg1:#090c11; --bg2:#0e1319; --panel:#07090d;
+  --card:#0d1116; --card2:#15191e;
+  --line:#1f2329; --line2:#2b3035;
+  --hair:rgba(255,255,255,.08); --hair-2:rgba(0,229,176,.22);   /* cyber 的"通电细线" */
+  --grid-line:#191d22; --grid-line2:#21262b;
+  --txt:#eef1f4; --mut:#9aa3ad; --dim:#7f8892;
+  --sig:#00e5b0;
+  --acc:#00e5b0; --acc2:#028c6e; --acc3:#68eecf;
+  --good:#35c98f; --warn:#e8c33f; --bad:#e5484d;
+  --grad:linear-gradient(100deg,#00e5b0,rgba(0,229,176,.78));
+  --grad2:linear-gradient(100deg,rgba(0,229,176,.62),#00e5b0);
+  --shadow-1:0 1px 2px rgba(0,0,0,.6);
+  --shadow-2:0 10px 28px rgba(0,0,0,.68);
+  --shadow-3:0 22px 54px rgba(0,0,0,.74);
+  --glass:rgba(9,12,16,.70); --glass-blur:16px;
+  --hover:rgba(0,229,176,.10);
+  --well:rgba(0,0,0,.36);
+  --ctl-bg:#080b0f; --ctl-bg2:#171c20; --sel-bg:#1a2024;
+  --ring:#00e5b0;
+  --on-acc:#04120d; --on-txt:#e8fff8;
+  --edging:rgba(0,229,176,.35);
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.45),inset 0 0 0 1px rgba(0,229,176,.22);
+  --scroll-sh:8px 0 10px -8px rgba(0,0,0,.85);
+  --piano:rgba(8,11,14,.96); --piano2:rgba(4,6,8,.99);
+  --glow:0 0 18px rgba(0,229,176,.18);              /* 赛博特色：唯一非零辉光 */
+  --note-ink:#06090c;
+  --txt-rgb:238,241,244; --line-rgb:31,35,41; --bg0-rgb:5,7,10;
+  --acc-rgb:0,229,176; --acc2-rgb:2,140,110; --acc3-rgb:104,238,207;
+  --good-rgb:53,201,143; --bad-rgb:229,72,77; --note-ink-rgb:6,9,12;
+  --lab-root:#43e8c3; --ruler-bar-tx:#90efda;
 }
-/* ---- 主题：日出（暖橙 + 深棕） ---- */
+
+/* ============================== 主题：sunrise（暖意只在信号色，基底仍冷灰） ============================== */
 :root[data-theme="sunrise"]{
-  --bg0:#150c06; --bg1:#1f1208; --bg2:#2b1b0e; --panel:#1e1209;
-  --card:#2b1c11; --card2:#372516; --line:#4c3018; --line2:#6d4826;
-  --txt:#fff3e6; --mut:#dcb894; --dim:#a8825c;
-  --acc:#ff9a3c; --acc2:#ff6a3c; --acc3:#ffd27a; --good:#9fe870; --warn:#ffd166; --bad:#ff6b5e;
-  --grad:linear-gradient(100deg,#e8542b,#ff9a3c 50%,#ffd27a);
-  --grad2:linear-gradient(100deg,#ffd27a,#ff9a3c 45%,#e8542b);
-  --shadow-1:0 6px 18px rgba(0,0,0,.4); --shadow-2:0 14px 44px rgba(0,0,0,.62); --shadow-3:0 26px 72px rgba(0,0,0,.72);
-  --glass:rgba(38,24,13,.66); --glass-blur:12px; --hover:rgba(255,220,180,.09); --ring:#ffb066;
-  --grid-line:#2f1d10; --grid-line2:#3a2514; --well:rgba(0,0,0,.34);
-  --ctl-bg:#1a0f07; --ctl-bg2:#422a16; --sel-bg:#4a2f18;
-  --on-acc:#2a1004; --on-txt:#fff2e2;
-  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.2);
-  --edging:rgba(255,205,150,.22); --scroll-sh:8px 0 10px -8px rgba(0,0,0,.8);
-  --piano:rgba(28,17,9,.96); --piano2:rgba(18,11,6,.99); --glow:0 0 0 0 rgba(0,0,0,0); --note-ink:#1a0f07;
-  --r-sm:9px; --r-xs:6px;
+  --bg0:#0a0b0d; --bg1:#0f1013; --bg2:#14161a; --panel:#0d0f12;
+  --card:#14161a; --card2:#1a1d22;
+  --line:#24282e; --line2:#34383d;
+  --hair:rgba(255,255,255,.07); --hair-2:rgba(255,255,255,.14);
+  --grid-line:#1c1f24; --grid-line2:#24282d;
+  --txt:#f0f1f3; --mut:#a2a7ae; --dim:#868c94;
+  --sig:#ff7a2f;
+  --acc:#ff7a2f; --acc2:#9d4d21; --acc3:#f9b088;
+  --good:#35c98f; --warn:#e8b13f; --bad:#e5484d;
+  --grad:linear-gradient(100deg,#ff7a2f,rgba(255,122,47,.78));
+  --grad2:linear-gradient(100deg,rgba(255,122,47,.62),#ff7a2f);
+  --shadow-1:0 1px 2px rgba(0,0,0,.5);
+  --shadow-2:0 8px 24px rgba(0,0,0,.55);
+  --shadow-3:0 20px 48px rgba(0,0,0,.62);
+  --glass:rgba(15,16,19,.72); --glass-blur:14px;
+  --hover:rgba(255,255,255,.07);
+  --well:rgba(0,0,0,.30);
+  --ctl-bg:#0d0f12; --ctl-bg2:#1c1f24; --sel-bg:#1d2026;
+  --ring:#ff7a2f;
+  --on-acc:#120703; --on-txt:#f6f4f2;
+  --edging:rgba(255,255,255,.10);
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.10);
+  --scroll-sh:8px 0 10px -8px rgba(0,0,0,.7);
+  --piano:rgba(13,14,17,.96); --piano2:rgba(9,10,12,.98);
+  --glow:0 0 0 0 rgba(0,0,0,0);
+  --note-ink:#0c0d10;
+  --txt-rgb:240,241,243; --line-rgb:36,40,46; --bg0-rgb:10,11,13;
+  --acc-rgb:255,122,47; --acc2-rgb:157,77,33; --acc3-rgb:249,176,136;
+  --good-rgb:53,201,143; --bad-rgb:229,72,77; --note-ink-rgb:12,13,16;
+  --lab-root:#fb9b66; --ruler-bar-tx:#f6c4a8;
 }
-/* ---- 主题：奶油（浅色：白 / 米底 + 深灰字） ---- */
+
+/* ============================== 主题：cream（浅色；基底浅冷灰，文字加深到 AA） ============================== */
 :root[data-theme="cream"]{
-  --bg0:#f7f3ea; --bg1:#f2ede1; --bg2:#e8e1d3; --panel:#fcfaf6;
-  --card:#ffffff; --card2:#f6f2ea; --line:#ddd5c6; --line2:#c3b8a4;
-  --txt:#2b2723; --mut:#5c5449; --dim:#6f6759;
-  --acc:#4a3fb0; --acc2:#0b6f8f; --acc3:#a8306f; --good:#1c7a4a; --warn:#8a5a00; --bad:#b3261e;
-  --grad:linear-gradient(100deg,#6a4ae0,#2f62cc 45%,#0a6f7c);
-  --grad2:linear-gradient(100deg,#b3261e,#a8306f 45%,#6a4ae0);
-  --shadow-1:0 2px 8px rgba(60,50,35,.12); --shadow-2:0 10px 30px rgba(50,42,30,.22); --shadow-3:0 22px 56px rgba(45,38,26,.32);
-  --glass:rgba(255,255,255,.88); --glass-blur:12px; --hover:rgba(43,39,35,.08); --ring:#4a3fb0;
-  --grid-line:#e4ddcf; --grid-line2:#d6ccb9; --well:rgba(60,50,35,.07);
-  --ctl-bg:#ffffff; --ctl-bg2:#efe9dc; --sel-bg:#e8ecfb;
-  --on-acc:#ffffff; --on-txt:#1b1636;
-  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.22),inset 0 0 0 1px rgba(255,255,255,.5);
-  --edging:rgba(60,50,35,.18); --scroll-sh:8px 0 10px -8px rgba(60,50,35,.22);
-  --piano:rgba(255,255,255,.97); --piano2:rgba(243,238,228,.99); --glow:0 0 0 0 rgba(0,0,0,0); --note-ink:#15111c;
-  --r-sm:9px; --r-xs:6px;
+  --bg0:#eef0f2; --bg1:#e6e9ec; --bg2:#dcdfe3; --panel:#f7f8f9;
+  --card:#ffffff; --card2:#f1f3f5;
+  --line:#d4d8dd; --line2:#b9bec3;
+  --hair:rgba(20,23,27,.09); --hair-2:rgba(20,23,27,.16);
+  --grid-line:#dfe3e7; --grid-line2:#d4d8dd;
+  --txt:#14171b; --mut:#4e555d; --dim:#6b737c;
+  --sig:#6a3fd0;
+  --acc:#6a3fd0; --acc2:#482f88; --acc3:#ad96e5;
+  --good:#1b7a4b; --warn:#8a5a00; --bad:#b3261e;
+  --grad:linear-gradient(100deg,#6a3fd0,rgba(106,63,208,.78));
+  --grad2:linear-gradient(100deg,rgba(106,63,208,.62),#6a3fd0);
+  --shadow-1:0 1px 2px rgba(20,23,27,.10);
+  --shadow-2:0 8px 24px rgba(20,23,27,.14);
+  --shadow-3:0 18px 40px rgba(20,23,27,.20);
+  --glass:rgba(255,255,255,.88); --glass-blur:12px;
+  --hover:rgba(20,23,27,.05);
+  --well:rgba(20,23,27,.05);
+  --ctl-bg:#ffffff; --ctl-bg2:#eceff2; --sel-bg:#e6ecfb;
+  --ring:#6a3fd0;
+  --on-acc:#ffffff; --on-txt:#14171b;
+  --edging:rgba(20,23,27,.10);
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.18),inset 0 0 0 1px rgba(0,0,0,.10);
+  --scroll-sh:8px 0 10px -8px rgba(20,23,27,.18);
+  --piano:rgba(255,255,255,.97); --piano2:rgba(243,245,247,.99);
+  --glow:0 0 0 0 rgba(0,0,0,0);
+  --note-ink:#14171b;
+  --txt-rgb:20,23,27; --line-rgb:212,216,221; --bg0-rgb:238,240,242;
+  --acc-rgb:106,63,208; --acc2-rgb:72,47,136; --acc3-rgb:173,150,229;
+  --good-rgb:27,122,75; --bad-rgb:179,38,30; --note-ink-rgb:20,23,27;
+  --lab-root:#52349d; --ruler-bar-tx:#7f70a8;
 }
-/* ---- 主题：森林（墨绿 + 苔藓绿，柔和） ---- */
+
+/* ============================== 主题：forest（绿意只在信号色，基底仍冷灰） ============================== */
 :root[data-theme="forest"]{
-  --bg0:#06120d; --bg1:#0a1a13; --bg2:#0e2419; --panel:#0b1a14;
-  --card:#10251b; --card2:#143021; --line:#1d3f2d; --line2:#2d5c43;
-  --txt:#e8f5ec; --mut:#9dc4ac; --dim:#6a9479;
-  --acc:#6fdc8c; --acc2:#34c7a0; --acc3:#ded06a; --good:#7ee08a; --warn:#e8c56a; --bad:#e8786b;
-  --grad:linear-gradient(100deg,#34c7a0,#6fdc8c 50%,#bfe26a);
-  --grad2:linear-gradient(100deg,#ded06a,#6fdc8c 45%,#34c7a0);
-  --shadow-1:0 6px 18px rgba(0,0,0,.3); --shadow-2:0 14px 44px rgba(0,0,0,.5); --shadow-3:0 26px 72px rgba(0,0,0,.6);
-  --glass:rgba(12,28,20,.62); --glass-blur:12px; --hover:rgba(200,255,220,.07); --ring:#6fdc8c;
-  --grid-line:#0f271c; --grid-line2:#132e21; --well:rgba(0,0,0,.28);
-  --ctl-bg:#091812; --ctl-bg2:#1a3625; --sel-bg:#1b3a28;
-  --on-acc:#04160d; --on-txt:#e6fff0;
-  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.3),inset 0 0 0 1px rgba(255,255,255,.18);
-  --edging:rgba(190,255,215,.16); --scroll-sh:8px 0 10px -8px rgba(0,0,0,.7);
-  --piano:rgba(9,22,16,.96); --piano2:rgba(5,14,10,.99); --glow:0 0 0 0 rgba(0,0,0,0); --note-ink:#08170f;
-  --r-sm:9px; --r-xs:6px;
+  --bg0:#090b0c; --bg1:#0d1011; --bg2:#121617; --panel:#0b0e0f;
+  --card:#121617; --card2:#181d1e;
+  --line:#212727; --line2:#303737;
+  --hair:rgba(255,255,255,.07); --hair-2:rgba(255,255,255,.14);
+  --grid-line:#191e1f; --grid-line2:#212727;
+  --txt:#eceff0; --mut:#9aa5a4; --dim:#7f8a89;
+  --sig:#35cf5f;
+  --acc:#35cf5f; --acc2:#24803e; --acc3:#87dea0;
+  --good:#35c98f; --warn:#e0b23f; --bad:#e5484d;
+  --grad:linear-gradient(100deg,#35cf5f,rgba(53,207,95,.78));
+  --grad2:linear-gradient(100deg,rgba(53,207,95,.62),#35cf5f);
+  --shadow-1:0 1px 2px rgba(0,0,0,.5);
+  --shadow-2:0 8px 24px rgba(0,0,0,.55);
+  --shadow-3:0 20px 48px rgba(0,0,0,.62);
+  --glass:rgba(12,15,16,.72); --glass-blur:14px;
+  --hover:rgba(255,255,255,.07);
+  --well:rgba(0,0,0,.30);
+  --ctl-bg:#0b0e0f; --ctl-bg2:#191e1f; --sel-bg:#1b2320;
+  --ring:#35cf5f;
+  --on-acc:#04120a; --on-txt:#eefaf3;
+  --edging:rgba(255,255,255,.10);
+  --cell-shadow:inset 0 -2px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.10);
+  --scroll-sh:8px 0 10px -8px rgba(0,0,0,.7);
+  --piano:rgba(11,14,15,.96); --piano2:rgba(7,9,10,.98);
+  --glow:0 0 0 0 rgba(0,0,0,0);
+  --note-ink:#090c0d;
+  --txt-rgb:236,239,240; --line-rgb:33,39,39; --bg0-rgb:9,11,12;
+  --acc-rgb:53,207,95; --acc2-rgb:36,128,62; --acc3-rgb:135,222,160;
+  --good-rgb:53,201,143; --bad-rgb:229,72,77; --note-ink-rgb:9,12,13;
+  --lab-root:#68d888; --ruler-bar-tx:#a5e3b8;
 }
+
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
+
+/* ---------- 方案 A：主题切换瞬间冻结过渡（FEAT-V6/T4） ----------
+   切主题时先给 <html> 加 .theme-transitioning，50ms 后移除。作用：
+   · 避免"旧色 → 新色"之间的过渡动画造成额外中间态重算/重绘；
+   · 让 data-theme 的变化在**一帧内**完成（不给过渡留插值区间）。
+   只禁过渡，不禁动画（进度条/播放光晕仍在跑）。 */
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after{transition:none !important}
+
+/* ---------- 主题切换：一次极短的"亮度脉动"（可选动效，300ms） ----------
+   · 只动 opacity（合成层动画，不触发重排/重绘的样式重算）；
+   · 用 body::after 固定铺满的极淡信号色薄雾，pointer-events:none 不挡交互；
+   · 由 js/ui/theme.js 在切主题时加 .theme-pulse（300ms 后移除）；
+   · 与 .theme-transitioning 一样，宁可少一次动效也不让切换变卡：这里只有 1 个元素、1 个属性。 */
+body::after{content:'';position:fixed;inset:0;z-index:400;pointer-events:none;opacity:0;
+  background:radial-gradient(120% 80% at 50% 0%,rgba(var(--acc-rgb),.10),transparent 60%)}
+:root.theme-pulse body::after{animation:themePulse var(--dur-base) var(--ease-out) 1}
+@keyframes themePulse{from{opacity:.9}to{opacity:0}}
+
+/* ---------- 无障碍：prefers-reduced-motion ----------
+   规则：关掉所有位移/缩放/循环动画，**保留颜色与透明度过渡**（不丢失状态可读性），
+   并保留功能性动画（加载旋转弧、进度微光、焦点环）。 */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation:none !important;                                  /* 位移/缩放/循环动画全关（含交错的负延迟观感） */
+    transition-property:opacity,color,background-color,border-color,box-shadow,fill,stroke !important;
+    transition-duration:var(--dur-instant) !important;transition-delay:0s !important;
+  }
+  /* 功能性动画显式恢复（进度条微光 / 忙碌旋转弧）：它们传达"还在跑"，不属于装饰动效 */
+  #epBar::after,.pb i::after,.vz-prog>i::after{
+    animation:sheen calc(var(--dur-flash) * 2) var(--ease-in-out) infinite !important}
+  #epTxt::before{animation:spin var(--dur-flash) var(--ease-linear) infinite !important}
+}
+
+/* ---------- 按下反馈（批 3 第 6 项，两页共用）----------
+   只加内阴影、不用 scale（scale 会把按钮文字重采样成糊的）；
+   时长 --dur-instant（120ms）+ --ease-out；放在文件最后，保证在 .acc:hover 之类规则之后生效。 */
+:is(.btn,.chip,.mi,.stab,.hchip,.bigBtn,.metroBtn,.toStartBtn,.zoomGrp button,.vz-btn,.vz-cardLink,.vz-select,
+    .vz-play,.vz-cancel,.vz-cover-x,.vz-cover-kinds>button,.vz-cover-tabs>button):active{
+  box-shadow:inset 0 2px 4px rgba(0,0,0,.3)}
+:is(.btn.acc,.bigBtn,.vz-btn.acc,.playBtn):active{
+  box-shadow:inset 0 2px 4px rgba(0,0,0,.3),inset 0 0 0 1px rgba(0,0,0,.25)}
+
+/* ============================================================================
+   动效工具（FEAT-V6/T5 批 A：从 layout.css 上移，主应用与可视化页共用）
+   必须放在 theme.css —— visualizer.html 只加载 theme.css + viz.css，拿不到 layout.css。
+   ============================================================================ */
+
+/* 旋转弧（忙碌指示）：恒速用 --ease-linear（= cubic-bezier(0,0,1,1)，避开规范禁用的 linear 关键字） */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{display:inline-block;width:13px;height:13px;flex:none;border:1.5px solid rgba(var(--txt-rgb),.25);
+  border-top-color:var(--acc);border-radius:50%;animation:spin var(--dur-flash) var(--ease-linear) infinite}
+
+/* 进度微光：55% 宽的高光带从右往左扫过（只动 transform，不碰 background-position） */
+@keyframes sheen{from{transform:translateX(190%)}to{transform:translateX(-110%)}}
+
+/* 列表交错进入：delay = var(--i) × 40ms，最多 8 档（超过的统一用第 8 档）
+   · 主应用 .menu .mi / .helpLine：nth-child 给 --i
+   · 可视化页 .vz-p：renderParams() 直接写 style="--i:n"（面板里控件类型不一，nth 会跳号） */
+.menu .mi,.helpLine{animation:staggerIn var(--dur-fast) var(--ease-out-quart) both;animation-delay:calc(var(--i,0) * 40ms)}
+.menu .mi:nth-child(1),.helpLine:nth-child(1){--i:0}
+.menu .mi:nth-child(2),.helpLine:nth-child(2){--i:1}
+.menu .mi:nth-child(3),.helpLine:nth-child(3){--i:2}
+.menu .mi:nth-child(4),.helpLine:nth-child(4){--i:3}
+.menu .mi:nth-child(5),.helpLine:nth-child(5){--i:4}
+.menu .mi:nth-child(6),.helpLine:nth-child(6){--i:5}
+.menu .mi:nth-child(7),.helpLine:nth-child(7){--i:6}
+.menu .mi:nth-child(8),.helpLine:nth-child(8){--i:7}
+.menu .mi:nth-child(n+9),.helpLine:nth-child(n+9){--i:8}
+@keyframes staggerIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* 数字/文本上滑淡入。同名不同名的两条动画是为了"能重播"：连续改值时交替切类名即可重启，
+   不必 remove → 强制回流 → add（拖动参数时每帧回流不可接受）。 */
+@keyframes numTick{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes numTickAlt{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.numTick{animation:numTick var(--dur-fast) var(--ease-out)}
+.numTickAlt{animation:numTickAlt var(--dur-fast) var(--ease-out)}
+
+/* 播放中的"呼吸环"（主应用 .playBtn 与可视化页 .vz-play 共用）：只动 transform + opacity */
+@keyframes playRipple{
+  0%{opacity:.55;transform:scale(1)}
+  65%{opacity:0;transform:scale(1.35)}
+  100%{opacity:0;transform:scale(1.35)}
+}
+
+/* 交叉淡入淡出（批 A：渲染器切换、封面产物/风格切换、画布首次入场共用）
+   fadeOut 120ms --ease-in；fadeIn 280ms --ease-out 带极轻推镜；中间点由 JS 的 120ms 定时器对齐。
+   批 C 第一部分起：这两个 keyframes 同时被"跨页面 View Transition"复用（见下面那段）。 */
+@keyframes fadeOut{from{opacity:1}to{opacity:0}}
+@keyframes fadeIn{from{opacity:0;transform:scale(1.015)}to{opacity:1;transform:none}}
+.fadeOut{animation:fadeOut var(--dur-instant) var(--ease-in) both}
+.fadeIn{animation:fadeIn var(--dur-base) var(--ease-out) both}
+
+/* ============================================================================
+   跨页面过渡（FEAT-V6/T5 批 C 第一部分）：主应用 ⇄ 可视化页
+   · @view-transition{navigation:auto} 让**同源跨文档导航**自动带过渡（Chromium 126+）；
+   · 两个页面都加载本文件 → 这一条规则两页同时生效，无需各自声明；
+   · 不支持的浏览器（旧 Safari / Firefox）会整段忽略，直接跳转，功能一点不受影响；
+   · 旧页 200ms/--ease-in 淡出、新页 280ms/--ease-out 淡入 —— 用的是批 3 的 token 与 keyframes，
+     没有另起一套 240ms/Material 曲线（见汇报"偏差"）。
+   ============================================================================ */
+@view-transition{navigation:auto}
+::view-transition-old(root){animation:fadeOut var(--dur-fast) var(--ease-in) both}
+::view-transition-new(root){animation:fadeIn var(--dur-base) var(--ease-out) both}
+/* 共享元素：主应用的 .logo 与可视化页顶栏的 .vz-logo 同名 → 跳转时 logo 从一边"飞"到另一边 */
+.logo,.vz-logo{view-transition-name:app-logo}
+::view-transition-group(app-logo){animation-duration:var(--dur-base);animation-timing-function:var(--ease-out)}
+/* 无障碍：reduced-motion 下不做跨页位移/缩放（全局那条 animation:none 覆盖不到 view-transition 伪元素树） */
+@media (prefers-reduced-motion: reduce){
+  ::view-transition-old(root),::view-transition-new(root),::view-transition-group(*){animation:none !important}
+}
+
 /* ---------- cream（浅色）主题专项：网格反转 / 反色文字 / 阴影加深 ---------- */
 :root[data-theme="cream"] .toast,
 :root[data-theme="cream"] .menu{box-shadow:var(--shadow-3);border-color:var(--line2)}
-/* 网格线在米底上要看得见：加深一点，并给音符格压深以提高对比度 */
+/* 网格线在浅底上要看得见：加深一点，并给音符格压深以提高对比度。
+   （.pc.on 原来是 color-mix(tc 36%, note-ink)：改成"note-ink 64% 透明罩 + tc 实底"两层背景，
+     等价但不再逐格做混色 —— 见 FEAT-V6/T4 的预混 token。） */
 :root[data-theme="cream"] .pc{border-right-color:var(--grid-line);border-bottom-color:var(--grid-line)}
-:root[data-theme="cream"] .pc.on{background:color-mix(in srgb,var(--tc) 36%, var(--note-ink));
+:root[data-theme="cream"] .pc.on{
+  background-image:linear-gradient(rgba(var(--note-ink-rgb),.64),rgba(var(--note-ink-rgb),.64)),linear-gradient(var(--tc),var(--tc));
   box-shadow:inset 0 -2px 0 rgba(0,0,0,.28),inset 0 0 0 1px rgba(255,255,255,.32)}
 :root[data-theme="cream"] .pc.on.velH{filter:brightness(1.12);
   box-shadow:inset 0 0 0 2px rgba(255,255,255,.75),inset 0 0 8px rgba(255,255,255,.45)}
@@ -150,4 +411,5 @@ html,body{height:100%}
 :root[data-theme="cream"] .bigBtn,
 :root[data-theme="cream"] .playBtn{color:var(--on-acc)}
 :root[data-theme="cream"] .pianoBar{border-top-color:var(--line2)}
-:root[data-theme="cream"] .bkey{background:linear-gradient(180deg,#3a3550,#141020);color:#c9c2e0}
+/* 黑键：浅色主题下也要是中性深灰（原来是紫调，与冷灰基底冲突） */
+:root[data-theme="cream"] .bkey{background:linear-gradient(180deg,#2a2e34,#101215);color:#c8cdd4}

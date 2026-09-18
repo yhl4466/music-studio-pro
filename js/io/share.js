@@ -110,7 +110,7 @@ export async function shareLink(){
     }catch(e){}
     const url=location.href.split('#')[0]+best; // best 自带 '#' 前缀（'#s='/'#z='/'#l='），此处不再补 '#'，否则 URL 变成 base+"##l=…" 导致分享链接打不开
     const kb=((best.length-1)/1024).toFixed(1);  // 真实 hash 长度（不含前缀 '#'）；不能用 url.split('#')[1]，多重 '#' 时会取到空串显示 0.0
-    const done=()=>toast('✅ 分享链接已复制到剪贴板（约 '+kb+' KB）→ 粘贴到浏览器打开即还原工程，或发给别人。','ok');
+    const done=()=>toast('分享链接已复制到剪贴板（约 '+kb+' KB）→ 粘贴到浏览器打开即还原工程，或发给别人。','ok','check');
     copyToClip(url,done);
   }catch(e){toast('分享失败：'+e.message,'err')}
 }

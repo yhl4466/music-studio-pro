@@ -46,24 +46,24 @@ export function freqOf(midi){return 440*Math.pow(2,(midi-69)/12)}
 /* =========================================================================
    2. 工程与音轨模型
    ========================================================================= */
-export const KIT=[ // 鼓组音色行（固定 8 行）
-  {id:'kick',  name:'底鼓',   icon:'◍'},
-  {id:'snare', name:'军鼓',   icon:'◈'},
-  {id:'clap',  name:'拍手',   icon:'☩'},
-  {id:'hhc',   name:'闭镲',   icon:'✦'},
-  {id:'hho',   name:'开镲',   icon:'✧'},
-  {id:'tom',   name:'通鼓',   icon:'◉'},
-  {id:'rim',   name:'边击',   icon:'◇'},
-  {id:'crash', name:'吊镲',   icon:'✺'}
+export const KIT=[ // 鼓组音色行（固定 8 行）；icon = 线性图标名（css/layout.css 的 .ico-<name>），不再是 emoji 字形
+  {id:'kick',  name:'底鼓',   icon:'kick'},
+  {id:'snare', name:'军鼓',   icon:'snare'},
+  {id:'clap',  name:'拍手',   icon:'clap'},
+  {id:'hhc',   name:'闭镲',   icon:'hhc'},
+  {id:'hho',   name:'开镲',   icon:'hho'},
+  {id:'tom',   name:'通鼓',   icon:'tom'},
+  {id:'rim',   name:'边击',   icon:'rim'},
+  {id:'crash', name:'吊镲',   icon:'crash'}
 ];
-export const ROLES={
-  lead :{name:'主旋律',icon:'🎤',defEngine:'lead', color:'#ff7ac8', shift:12},
-  bass :{name:'贝斯',  icon:'🎸',defEngine:'bass', color:'#ffc46b', shift:-12},
-  pad  :{name:'和弦垫',icon:'🌫️',defEngine:'pad',  color:'#7c6cff', shift:0},
-  chord:{name:'柱式和弦',icon:'🎹',defEngine:'organ',color:'#3aa0ff', shift:-12},
-  arp  :{name:'琶音', icon:'🌊',defEngine:'pluck', color:'#22ffd6', shift:12},
-  custom:{name:'自定义',icon:'🔧',defEngine:'pluck',color:'#9fe870',shift:0},
-  drum :{name:'鼓组', icon:'🥁',color:'#ff6b81', shift:0}
+export const ROLES={ // icon = 线性图标名（供 ui/timeline.js 的 .tgIcon 与 ui/sidebar.js 的 .roleTag 使用）
+  lead :{name:'主旋律',icon:'mic',  defEngine:'lead', color:'#ff7ac8', shift:12},
+  bass :{name:'贝斯',  icon:'low',  defEngine:'bass', color:'#ffc46b', shift:-12},
+  pad  :{name:'和弦垫',icon:'mist', defEngine:'pad',  color:'#7c6cff', shift:0},
+  chord:{name:'柱式和弦',icon:'keys',defEngine:'organ',color:'#3aa0ff', shift:-12},
+  arp  :{name:'琶音', icon:'waves',defEngine:'pluck', color:'#22ffd6', shift:12},
+  custom:{name:'自定义',icon:'gear',defEngine:'pluck',color:'#9fe870',shift:0},
+  drum :{name:'鼓组', icon:'drum', color:'#ff6b81', shift:0}
 };
 export const ENGINE_NAMES={lead:'主音 Lead',pluck:'拨弦 Pluck',pad:'垫 Pad',bass:'贝斯 Bass',bell:'铃音 Bell',organ:'风琴 Organ'};
 /* 引擎默认参数 */

@@ -1,6 +1,6 @@
 /* [engine.js] source: Pro.html 1441-1443/1469, 1470-1529, 1531-1533, 1548-1572, 1573-1589, 1604-1620（音序器 + 走带） */
 import { proj, actx, A, stepDurNow, SPB, beatSteps, patRows, rowMidi } from '../core/state.js';
-import { clamp, UI } from '../core/util.js';
+import { clamp, icon, UI } from '../core/util.js';
 import { KIT, PREC_U_PER_STEP, trackRows, freqOf } from '../core/theory.js';
 import { ensureAudio, setGate } from './master.js';
 import { synthVoice, reserveVoices } from './synth.js';
@@ -163,7 +163,7 @@ export function finishSong(){
   }
   playheadHooks.clearStepGlow?.();
   playheadHooks.updatePos?.(proj.steps-1);
-  UI.posSub.textContent='🎵 已结束';
+  UI.posSub.innerHTML=icon('music')+'已结束';
 }
 /** 暂停：保留 Play.step 与 hasStarted —— 下次按播放从原位置继续。
     与 stopPlay()（明确停止 / 回到停止态，下次从头）区分开：
