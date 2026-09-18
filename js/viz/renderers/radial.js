@@ -177,9 +177,10 @@ export const radial={
   id:'radial',
   label:'径向频谱',
   params:{
-    bars:   {type:'range',min:32,max:128,step:16,def:64,label:'扇形数',fixed:0},
-    innerR: {type:'range',min:.1,max:.6,step:.05,def:.3,label:'内半径',fixed:2},
-    rotate: {type:'toggle',def:true,label:'旋转'},
+    /* isPrimary（批 B 参数分级）：结构三件套常驻；发光/镜像收进「更多参数」 */
+    bars:   {type:'range',min:32,max:128,step:16,def:64,label:'扇形数',fixed:0,isPrimary:true},
+    innerR: {type:'range',min:.1,max:.6,step:.05,def:.3,label:'内半径',fixed:2,isPrimary:true},
+    rotate: {type:'toggle',def:true,label:'旋转',isPrimary:true},
     glow:   {type:'toggle',def:true,label:'发光'},
     mirror: {type:'toggle',def:false,label:'镜像'}
   },

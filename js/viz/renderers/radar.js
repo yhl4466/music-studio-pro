@@ -125,9 +125,10 @@ export const radar={
   id:'radar',
   label:'雷达图',
   params:{
-    gain:       {type:'range',min:.5,max:3,step:.1,def:1,label:'灵敏度',fixed:1},
-    showHistory:{type:'toggle',def:true,label:'显示历史'},
-    autoGain:   {type:'toggle',def:false,label:'自动增益'},
+    /* isPrimary（批 B 参数分级）：灵敏度/自动增益/历史常驻；轴标签收进「更多参数」 */
+    gain:       {type:'range',min:.5,max:3,step:.1,def:1,label:'灵敏度',fixed:1,isPrimary:true},
+    showHistory:{type:'toggle',def:true,label:'显示历史',isPrimary:true},
+    autoGain:   {type:'toggle',def:false,label:'自动增益',isPrimary:true},
     showLabels: {type:'toggle',def:true,label:'轴标签'}
   },
   values:{ gain:1, showHistory:true, autoGain:false, showLabels:true },

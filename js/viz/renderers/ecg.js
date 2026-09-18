@@ -160,9 +160,10 @@ export const ecg={
   id:'ecg',
   label:'心电图',
   params:{
-    gain:      {type:'range',min:.5,max:3,step:.1,def:1.5,label:'灵敏度',fixed:1},
-    decay:     {type:'range',min:.5,max:3,step:.1,def:1.5,label:'衰减时间',fixed:1},
-    timeWindow:{type:'range',min:2,max:8,step:.5,def:4,label:'时间窗',fixed:1},
+    /* isPrimary（批 B 参数分级）：常驻三项手感参数；网格/心率显示收进「更多参数」 */
+    gain:      {type:'range',min:.5,max:3,step:.1,def:1.5,label:'灵敏度',fixed:1,isPrimary:true},
+    decay:     {type:'range',min:.5,max:3,step:.1,def:1.5,label:'衰减时间',fixed:1,isPrimary:true},
+    timeWindow:{type:'range',min:2,max:8,step:.5,def:4,label:'时间窗',fixed:1,isPrimary:true},
     showGrid:  {type:'toggle',def:true,label:'网格'},
     showBpm:   {type:'toggle',def:true,label:'心率显示'}
   },

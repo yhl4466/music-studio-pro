@@ -32,11 +32,12 @@ function buildGradient(ctx,view){
 export const waveform={
   id:'waveform',
   label:'实时波形',
-  /* params = 纯声明（供参数面板生成控件）；当前值放 values，避免把描述对象当数值用 */
+  /* params = 纯声明（供参数面板生成控件）；当前值放 values，避免把描述对象当数值用。
+     本渲染器只有 3 个参数，全部标 isPrimary（面板上不会出现「更多参数」按钮） */
   params:{
-    gain:{type:'range',min:.5,max:3,step:.05,def:1,label:'灵敏度',fixed:2},
-    grid:{type:'toggle',def:true,label:'中线'},
-    width:{type:'range',min:1,max:5,step:.5,def:2,label:'线宽',fixed:1}
+    gain:{type:'range',min:.5,max:3,step:.05,def:1,label:'灵敏度',fixed:2,isPrimary:true},
+    grid:{type:'toggle',def:true,label:'中线',isPrimary:true},
+    width:{type:'range',min:1,max:5,step:.5,def:2,label:'线宽',fixed:1,isPrimary:true}
   },
   values:{ gain:1, grid:true, width:2 },
   init(ctx,view){

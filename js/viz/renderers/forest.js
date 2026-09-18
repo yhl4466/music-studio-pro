@@ -369,11 +369,12 @@ function unbindPointer(){
 export const forest={
   id:'forest',
   label:'3D 频谱森林',
-  /* params = 纯声明（键名即参数名）；当前值在 values（缺省回落 def） */
+  /* params = 纯声明（键名即参数名）；当前值在 values（缺省回落 def）
+     isPrimary（批 B 参数分级）：频段数/历史深度/透视常驻；自动旋转/地面网格/色调收进「更多参数」 */
   params:{
-    freqBands:   {label:'频段数',  type:'range',min:32,max:128,step:16,def:64,fixed:0},
-    historyDepth:{label:'历史深度',type:'range',min:16,max:128,step:16,def:64,fixed:0},
-    perspective: {label:'透视强度',type:'range',min:.5,max:3,step:.1,def:1.5,fixed:1},
+    freqBands:   {label:'频段数',  type:'range',min:32,max:128,step:16,def:64,fixed:0,isPrimary:true},
+    historyDepth:{label:'历史深度',type:'range',min:16,max:128,step:16,def:64,fixed:0,isPrimary:true},
+    perspective: {label:'透视强度',type:'range',min:.5,max:3,step:.1,def:1.5,fixed:1,isPrimary:true},
     autoRotate:  {label:'自动旋转',type:'toggle',def:true},
     showGrid:    {label:'地面网格',type:'toggle',def:true},
     hue:         {label:'色调',    type:'range',min:0,max:360,step:10,def:180,fixed:0}

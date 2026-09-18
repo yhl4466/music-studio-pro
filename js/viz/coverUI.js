@@ -125,7 +125,28 @@ function applyKindLayout(){
 function setBtnBusy(on){
   if(!el||!el.btn)return;
   el.btn.disabled=!!on;
+  if(on)el.btn.dataset.busy='1'; else delete el.btn.dataset.busy;   // 批 A：忙碌时前置旋转弧
   if(el.btnLabel)el.btnLabel.textContent=on?'分析中…':'生成封面';
+}
+
+/* ---------- 批 A：产物/风格切换与种子换图的交叉淡入淡出 ----------
+   .fadeOut/.fadeIn 的 keyframes 在 theme.css（与渲染器切换共用）；唯一允许的 setTimeout 是 120ms 中间点。 */
+let _fadeTimer=0;
+function crossFadeCover(mid){
+  const body=el&&el.body, cv=el&&el.canvas;
+  if(!body||!cv){ mid(); return }
+  if(_fadeTimer){ clearTimeout(_fadeTimer); _fadeTimer=0 }        // 连点：旧定时器作废
+  cv.classList.remove('fadeIn');
+  cv.classList.add('fadeOut');
+  body.classList.add('pk');                                       // 外壳 120ms 底闪，遮住"尺寸硬跳"
+  _fadeTimer=setTimeout(()=>{
+    _fadeTimer=0;
+    try{ mid() }finally{
+      cv.classList.remove('fadeOut');
+      cv.classList.add('fadeIn');
+      body.classList.remove('pk');
+    }
+  },120);
 }
 
 /* ---------- 绘制 ---------- */
@@ -164,16 +185,18 @@ function render(){
 }
 function setStyle(s){
   if(COVER_STYLES.indexOf(s)<0)return;
+  const changing=(s!==style);
   style=s;
   setStyleButtons();
-  render();
+  if(changing)crossFadeCover(()=>render()); else render();
 }
 function setKind(k){
   if(!KIND_LABELS[k])return;
+  const changing=(k!==kind);
   kind=k;
   setKindButtons();
-  applyKindLayout();
-  render();
+  if(changing)crossFadeCover(()=>{ applyKindLayout(); render() });   // 批 A：宽度与画面一起换，中间点对齐
+  else{ applyKindLayout(); render() }
 }
 function setSeed(n){
   const v=Math.max(0,Math.min(SEED_MAX,Math.round(Number(n)||0)));
@@ -243,9 +266,9 @@ async function open(){
 export function invalidateCoverFeatures(){ features=null }
 
 /* ---------- 下载（支持 2× 离屏导出） ---------- */
-/** 导出用的画布：勾了高清就用离屏画布以 scale=2 重绘（不动预览），否则直接用预览画布 */
-function exportCanvas(){
-  const scale=hd?2:1;
+/** 导出用的画布：勾了高清（或本次强制 2×）就用离屏画布以 scale=2 重绘（不动预览），否则直接用预览画布 */
+function exportCanvas(force2x){
+  const scale=(hd||force2x)?2:1;
   if(scale===1||typeof document==='undefined'||typeof document.createElement!=='function')return el.canvas;
   const off=document.createElement('canvas');
   try{
@@ -258,12 +281,12 @@ function exportCanvas(){
     return el.canvas;
   }
 }
-function download(){
+function download(force2x){
   if(!el||!el.canvas){ setNote('还没有可下载的画布'); return }
   if(!features){ setNote('还没有分析结果，无法导出'); return }
   const name=safeName(titleOf())+(kind==='sharecard'?'-sharecard.png'
               :(kind==='fingerprint'?'-fingerprint.png':('-cover-'+style+'.png')));
-  const src=exportCanvas();
+  const src=exportCanvas(force2x);
   try{
     src.toBlob(blob=>{
       if(!blob){ setNote('导出失败：toBlob 返回空'); return }
@@ -275,6 +298,15 @@ function download(){
     console.error('[viz-cover-ui] 导出失败',e);
   }
 }
+/* ---------- 下载选项菜单（批 B 任务 8）：2× 高清与"以 2× 下载"从控件行收进头部 ▾ 菜单 ---------- */
+let dlOpen=false;
+function setDlMenu(on){
+  if(!el||!el.dlMenu)return;
+  dlOpen=!!on;
+  el.dlMenu.classList.toggle('open',dlOpen);
+  if(el.dlMore)el.dlMore.setAttribute('aria-expanded',dlOpen?'true':'false');
+}
+function closeDlMenu(){ if(dlOpen)setDlMenu(false) }
 
 /* =========================================================================
    绑定（boot 里调用一次；重复调用只生效一次）
@@ -308,6 +340,9 @@ export function bindCoverUI(h){
     hd:$('#vzCoverHd'),
     shuffle:$('#vzCoverShuffle'),
     download:$('#vzCoverDownload'),
+    dlMore:$('#vzDlMore'),
+    dlMenu:$('#vzDlMenu'),
+    dl2x:$('#vzDl2x'),
     close:$('#vzCoverClose'),
     kindTabs:(modal.querySelectorAll?Array.from(modal.querySelectorAll('.vz-cover-kinds button')):[]),
     tabs:(modal.querySelectorAll?Array.from(modal.querySelectorAll('.vz-cover-tabs button')):[])
@@ -334,9 +369,23 @@ export function bindCoverUI(h){
     el.seed.addEventListener('change',()=>setSeed(el.seed.value));
   }
   if(el.download)el.download.addEventListener('click',()=>download());
-  /* Esc 关闭：用捕获阶段抢在 main.js 的"Esc=停止播放"之前，避免关弹窗时顺带停播 */
+  /* 下载选项菜单（批 B 任务 8）：▾ 开关；「以 2× 下载」= 临时 2× 导出一次，不改变上面的勾选状态 */
+  if(el.dlMore)el.dlMore.addEventListener('click',e=>{ e.stopPropagation(); setDlMenu(!dlOpen) });
+  if(el.dl2x)el.dl2x.addEventListener('click',()=>{ setDlMenu(false); download(true) });
+  if(document.addEventListener)document.addEventListener('pointerdown',e=>{
+    if(!dlOpen)return;
+    if((el.dlMenu&&el.dlMenu.contains(e.target))||(el.dlMore&&el.dlMore.contains(e.target)))return;
+    setDlMenu(false);
+  });
+  /* .fadeIn 播完摘类（省一个定时器），下次再加即可重播 */
+  if(el.canvas)el.canvas.addEventListener('animationend',e=>{ if(e.animationName==='fadeIn')el.canvas.classList.remove('fadeIn') });
+  /* Esc 关闭：用捕获阶段抢在 main.js 的"Esc=停止播放"之前。
+     优先级：先收下载菜单 → 再关弹窗（菜单开着时按 Esc 不应该把弹窗一起关掉）。 */
   window.addEventListener('keydown',e=>{
-    if(e.key==='Escape'&&isOpen()){ e.preventDefault(); e.stopPropagation(); close() }
+    if(e.key!=='Escape'||!isOpen())return;
+    e.preventDefault(); e.stopPropagation();
+    if(dlOpen){ setDlMenu(false); return }
+    close();
   },true);
   return el;
 }

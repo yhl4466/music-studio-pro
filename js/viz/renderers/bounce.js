@@ -99,8 +99,9 @@ export const bounce={
   id:'bounce',
   label:'跳动波形',
   params:{
-    amplitude: {type:'range',min:.5,max:3,step:.1,def:1.5,label:'幅度',fixed:1},
-    bounciness:{type:'range',min:.5,max:3,step:.1,def:1.5,label:'弹跳力',fixed:1},
+    /* isPrimary（批 B 参数分级）：幅度/弹跳力常驻；镜像/发光收进「更多参数」 */
+    amplitude: {type:'range',min:.5,max:3,step:.1,def:1.5,label:'幅度',fixed:1,isPrimary:true},
+    bounciness:{type:'range',min:.5,max:3,step:.1,def:1.5,label:'弹跳力',fixed:1,isPrimary:true},
     mirror:    {type:'toggle',def:false,label:'镜像'},
     glow:      {type:'toggle',def:true,label:'发光'}
   },

@@ -240,9 +240,11 @@ export const particles={
   id:'particles',
   label:'粒子系统',
   params:{
-    density:   {label:'密度',type:'range',min:.2,max:2,step:.1,def:1,fixed:1},
-    size:      {label:'粒子大小',type:'range',min:1,max:6,step:.5,def:2.5,fixed:1},
-    speed:     {label:'漂浮速度',type:'range',min:0,max:1,step:.05,def:.3,fixed:2},
+    /* isPrimary（批 B 参数分级）：密度/大小/速度常驻（8 个参数里最常用的三个手感项）；
+       色调、色相散布、点亮模式、发光、随音乐变化 收进「更多参数」 */
+    density:   {label:'密度',type:'range',min:.2,max:2,step:.1,def:1,fixed:1,isPrimary:true},
+    size:      {label:'粒子大小',type:'range',min:1,max:6,step:.5,def:2.5,fixed:1,isPrimary:true},
+    speed:     {label:'漂浮速度',type:'range',min:0,max:1,step:.05,def:.3,fixed:2,isPrimary:true},
     hue:       {label:'基础色调',type:'range',min:0,max:360,step:10,def:200,fixed:0},
     hueSpread: {label:'色相散布',type:'range',min:0,max:180,step:5,def:60,fixed:0},
     lightMode: {label:'点亮模式',type:'select',options:[['single','单个随机'],['burst','多点爆发'],['wave','波浪扫描']],def:'single'},

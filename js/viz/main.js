@@ -31,9 +31,109 @@ const playIco=$('#vzPlayIco'), pauseIco=$('#vzPauseIco');
 const cancelBtn=$('#vzCancel'), paramsBox=$('#vzParams');
 const renderFill=$('#vzRenderFill'), renderLab=$('#vzRenderLab');
 
+/* ============================================================================
+   批 A 动效基础设施（可视化页）
+   · 画布交叉淡入淡出：.fadeOut 120ms --ease-in → 中间点做事 → .fadeIn 280ms --ease-out
+     （keyframes 在 theme.css，两页共用）；唯一允许的 setTimeout 就是那个 120ms 中间点。
+   · 提示行：把 #vzHint 的内容换成"状态 + 详情"两个 span（HTML 不动，只新增 class）；
+     状态变了才播 200ms 淡入，详情随时更新但不播动画（否则进度每 24 步闪一次）。
+   · 数字 tick：交替两个同名动画的 class 来重播，避免 remove→强制回流→add。
+   ============================================================================ */
+let _fadeTimer=0;
+function revealCanvas(){
+  if(!cv)return;
+  cv.classList.remove('fadeIn');
+  cv.classList.add('fadeIn');                 // animation-name 变化即重播
+}
+/** 交叉淡入淡出：120ms 处执行 mid（换渲染器/重绘），随后淡入 */
+function crossFadeCanvas(mid){
+  if(!cv){ mid(); return }
+  if(_fadeTimer){ clearTimeout(_fadeTimer); _fadeTimer=0 }   // 连点：旧定时器作废，避免 mid 跑两次
+  cv.classList.remove('fadeIn');
+  cv.classList.add('fadeOut');
+  _fadeTimer=setTimeout(()=>{
+    _fadeTimer=0;
+    try{ mid() }finally{
+      cv.classList.remove('fadeOut');
+      revealCanvas();
+    }
+  },120);
+}
+
+let hintS=null, hintK=null, _hintFlip=0;
+function ensureHintSpans(){
+  if(!hint||hintS)return;
+  hint.textContent='';
+  hintS=document.createElement('span'); hintS.className='vz-hintS';
+  hintK=document.createElement('span'); hintK.className='vz-hintK';
+  hint.appendChild(hintS); hint.appendChild(hintK);
+  hint.setAttribute('aria-live','polite');           // 状态变化会被读屏播报（可见文本即播报文本）
+}
+/** 提示行（批 B 任务 6）：status 变了才淡入一次；key 是"关键量"（可见）；detail 进 title + aria-label。
+    这样首屏只有「状态 + 关键量」，长详情（notes/渲染 ms/排期步数）悬停或读屏时仍完整可查。 */
+function setHint(status,key,detail){
+  if(!hint)return;
+  ensureHintSpans();
+  const s=(status==null)?'':String(status);
+  let k=(key==null)?'':String(key);
+  const d=(detail==null)?'':String(detail);
+  if(!k&&d)k=(d.length>24)?(d.slice(0,24)+'…'):d;     // 出错时没有关键量：把详情截断显示，错误必须看得见
+  const full=[s,k,d].filter(Boolean).join(' · ');
+  if(hint.title!==full)hint.title=full;
+  if(hint.getAttribute('aria-label')!==full)hint.setAttribute('aria-label',full);
+  if(hintS.textContent!==s){
+    hintS.textContent=s;
+    _hintFlip^=1;
+    hintS.classList.toggle('hf',_hintFlip===1);      // hf / hf2 交替 → 动画重播，不需要回流
+    hintS.classList.toggle('hf2',_hintFlip===0);
+  }
+  if(hintK.textContent!==k)hintK.textContent=k;
+}
+/** 数字/数值上滑淡入（拖动参数、进度百分比等） */
+function tickText(el){
+  if(!el)return;
+  const on=el.classList.contains('numTick');
+  el.classList.remove('numTick','numTickAlt');
+  el.classList.add(on?'numTickAlt':'numTick');
+}
+/* ---------- 原生 <select> 的点击微反馈（批 C 补丁 2，方案 A + C） ----------
+   原生下拉的展开动画由浏览器/OS 绘制，CSS 覆盖不到（专业工具里这也是常态，所以不改成自绘下拉）。
+   这里做一件能做的事：按下时给外层容器一次 scale(.98→1)+淡入的 200ms 微反馈，让"我点到了"可感知。
+   用交替类名重播（不强制回流、也不需要定时器摘类：动画播完即回常态）。 */
+function bindSelectPulse(sel){
+  if(!sel||sel.__pulseBound)return;
+  sel.__pulseBound=true;
+  const host=sel.parentElement||sel;
+  const pulse=()=>{
+    const on=host.classList.contains('selPulse');
+    host.classList.remove('selPulse','selPulseAlt');
+    host.classList.add(on?'selPulseAlt':'selPulse');
+  };
+  sel.addEventListener('pointerdown',pulse);
+  sel.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '||e.key==='ArrowDown'||e.key==='ArrowUp')pulse() });
+}
+/* 提示行的"关键量"文本变化时播一次上滑淡入（批 C 补丁：渲染 ETA 每秒变一次，看得到在动）。
+   只在文本真的变化时播 —— 进度回调每 250ms 来一次，但 ETA 文案是秒级的，所以实际约 1 次/秒。 */
+let _hintKeyText='';
+function tickHintKey(text){
+  const t=text||'';
+  if(t===_hintKeyText)return;
+  _hintKeyText=t;
+  if(hintK)tickText(hintK);
+}
+
+/* ---------- FPS（批 B 任务 7）：默认隐藏，F 键切换；连续偏低时自动浮现 ---------- */
+let fpsOn=false, fpsLow=0;
+function toggleFps(){
+  fpsOn=!fpsOn;
+  if(!fpsEl)return;
+  fpsEl.classList.toggle('on',fpsOn||fpsLow>=3);
+  setHint('帧率显示',fpsOn?'已打开':'已关闭',fpsOn?'帧率数字显示在画布右下角（F 键再按一次关闭）':'连续低于 45 帧时仍会自动出现');
+}
+
 /* 顶层错误上报：独立页面没有主应用的 toast 容器，落到底部提示行 */
-window.addEventListener('error',e=>{if(hint)hint.textContent='运行错误：'+(e.message||'未知')});
-window.addEventListener('unhandledrejection',e=>{const r=e.reason;if(hint)hint.textContent='Promise 错误：'+(r&&r.message?r.message:String(r))});
+window.addEventListener('error',e=>setHint('运行错误','',(e&&e.message)||'未知错误'));
+window.addEventListener('unhandledrejection',e=>{const r=e.reason;setHint('Promise 错误','',(r&&r.message)?r.message:String(r))});
 
 /* ---------- 渲染器注册表：见 ./registry.js（渲染器自注册，入口只做编排） ---------- */
 const ctx=cv?cv.getContext('2d'):null;
@@ -77,60 +177,99 @@ function setParamValue(name,val){
   if(!r.values)r.values={};
   r.values[name]=val;
 }
+/* 单个参数 → 一行控件（.vz-p）。idx 用于交错入场的 --i。 */
+function buildParam(r,name,s,idx){
+  const lab=document.createElement('label');
+  lab.className='vz-p';
+  lab.style.setProperty('--i',String(Math.min(idx,8)));
+  const span=document.createElement('span');
+  span.className='vz-pLabel';
+  span.textContent=s.label||name;
+  lab.appendChild(span);
+  if(s.type==='toggle'){
+    const cb=document.createElement('input');
+    cb.type='checkbox'; cb.className='vz-pCheck';
+    cb.checked=!!paramValue(name,s);
+    cb.addEventListener('change',()=>{ setParamValue(name,cb.checked); markDirty() });
+    lab.appendChild(cb);
+  }else if(s.type==='select'&&Array.isArray(s.options)){
+    /* 下拉参数（T2.2）：options 为二维数组 [[value,label],...]；值是字符串，
+       不能走 paramValue()（那是给数值滑块用的，会把 'rainbow' 变 NaN），所以这里直接读 values 原值。
+       样式复用 viz.css 的 .vz-select（顶部渲染器/渲染长度下拉同款），不新增 CSS。 */
+    const sel=document.createElement('select');
+    sel.className='vz-select';
+    sel.title=s.label||name;
+    const raw=(r&&r.values&&r.values[name]!=null)?r.values[name]:s.def;
+    for(let i=0;i<s.options.length;i++){
+      const op=s.options[i]; if(!op)continue;
+      const o=document.createElement('option');
+      o.value=String(op[0]);
+      o.textContent=String(op[1]==null?op[0]:op[1]);
+      sel.appendChild(o);
+    }
+    sel.value=String(raw);
+    sel.addEventListener('change',()=>{ setParamValue(name,sel.value); markDirty() });
+    bindSelectPulse(sel);                      // 批 C 补丁 2：原生下拉的点击微反馈
+    lab.appendChild(sel);
+  }else{
+    const inp=document.createElement('input');
+    inp.type='range'; inp.className='vz-pRange';
+    inp.min=String(s.min); inp.max=String(s.max);
+    inp.step=String(s.step==null?0.01:s.step);
+    inp.value=String(paramValue(name,s));
+    const val=document.createElement('span');
+    val.className='vz-pVal';
+    let shown='';
+    const show=()=>{
+      const t=(+inp.value).toFixed(s.fixed==null?2:s.fixed);
+      if(t===shown)return;                    // 值真的变了才播动画（拖动时按帧回调很密）
+      shown=t; val.textContent=t; tickText(val);
+    };
+    show();
+    inp.addEventListener('input',()=>{ setParamValue(name,+inp.value); show(); markDirty() });
+    lab.appendChild(inp); lab.appendChild(val);
+  }
+  return lab;
+}
 function renderParams(){
   if(!paramsBox)return;
   while(paramsBox.firstChild)paramsBox.removeChild(paramsBox.firstChild);
   const r=current();
   const spec=r&&r.params?r.params:null;
   if(!spec)return;
-  for(const name in spec){
-    const s=spec[name]; if(!s)continue;
-    const lab=document.createElement('label');
-    lab.className='vz-p';
-    const span=document.createElement('span');
-    span.className='vz-pLabel';
-    span.textContent=s.label||name;
-    lab.appendChild(span);
-    if(s.type==='toggle'){
-      const cb=document.createElement('input');
-      cb.type='checkbox'; cb.className='vz-pCheck';
-      cb.checked=!!paramValue(name,s);
-      cb.addEventListener('change',()=>{ setParamValue(name,cb.checked); markDirty() });
-      lab.appendChild(cb);
-    }else if(s.type==='select'&&Array.isArray(s.options)){
-      /* 下拉参数（T2.2）：options 为二维数组 [[value,label],...]；值是字符串，
-         不能走 paramValue()（那是给数值滑块用的，会把 'rainbow' 变 NaN），所以这里直接读 values 原值。
-         样式复用 viz.css 的 .vz-select（顶部渲染器/渲染长度下拉同款），不新增 CSS。 */
-      const sel=document.createElement('select');
-      sel.className='vz-select';
-      sel.title=s.label||name;
-      const raw=(r&&r.values&&r.values[name]!=null)?r.values[name]:s.def;
-      for(let i=0;i<s.options.length;i++){
-        const op=s.options[i]; if(!op)continue;
-        const o=document.createElement('option');
-        o.value=String(op[0]);
-        o.textContent=String(op[1]==null?op[0]:op[1]);
-        sel.appendChild(o);
-      }
-      sel.value=String(raw);
-      sel.addEventListener('change',()=>{ setParamValue(name,sel.value); markDirty() });
-      lab.appendChild(sel);
-    }else{
-      const inp=document.createElement('input');
-      inp.type='range'; inp.className='vz-pRange';
-      inp.min=String(s.min); inp.max=String(s.max);
-      inp.step=String(s.step==null?0.01:s.step);
-      inp.value=String(paramValue(name,s));
-      const val=document.createElement('span');
-      val.className='vz-pVal';
-      const show=()=>{ val.textContent=(+inp.value).toFixed(s.fixed==null?2:s.fixed) };
-      show();
-      inp.addEventListener('input',()=>{ setParamValue(name,+inp.value); show(); markDirty() });
-      lab.appendChild(inp); lab.appendChild(val);
-    }
-    paramsBox.appendChild(lab);
+  /* 批 B 任务 5：常用参数（声明里 isPrimary:true）常驻；其余收进「更多参数 (N)」折叠区。
+     一个参数都不删；若某渲染器没标 isPrimary，就全部当常用（向后兼容，面板不会变空）。 */
+  const prim=[],more=[];
+  for(const name in spec){ const s=spec[name]; if(!s)continue; (s.isPrimary?prim:more).push([name,s]) }
+  const list=prim.length?prim:more.slice();
+  const rest=prim.length?more:[];
+  list.forEach(([n,s],i)=>paramsBox.appendChild(buildParam(r,n,s,i)));
+  if(rest.length){
+    const btn=document.createElement('button');
+    btn.type='button'; btn.className='vz-moreBtn';
+    btn.setAttribute('aria-expanded',moreOpen?'true':'false');
+    btn.title='展开/收起其余参数（全部参数都保留，只是默认收起）';
+    const txt=document.createElement('span');
+    txt.className='vz-moreTxt';
+    txt.textContent='更多参数 ('+rest.length+')';
+    const car=document.createElement('span');
+    car.className='vz-caret'; car.setAttribute('aria-hidden','true');
+    btn.appendChild(txt); btn.appendChild(car);
+    const wrap=document.createElement('div');
+    wrap.className='vz-more'+(moreOpen?' open':'');
+    const inner=document.createElement('div');
+    rest.forEach(([n,s],i)=>inner.appendChild(buildParam(r,n,s,i)));
+    wrap.appendChild(inner);
+    btn.addEventListener('click',()=>{
+      moreOpen=!moreOpen;
+      wrap.classList.toggle('open',moreOpen);
+      btn.setAttribute('aria-expanded',moreOpen?'true':'false');
+    });
+    paramsBox.appendChild(btn);
+    paramsBox.appendChild(wrap);
   }
 }
+let moreOpen=false;                    // 「更多参数」的展开状态：跨渲染器切换保留（用户的偏好）
 /* 渲染器下拉：用注册表填充（保留已有选中项） */
 function renderPicker(){
   if(!pick)return;
@@ -152,9 +291,16 @@ export function fmtTime(sec){
 }
 const SEEK_MAX=1000;                 // 进度条刻度（整数，避免浮点抖动）
 let seeking=false;                   // 用户正在拖拽时，屏蔽播放位置的回写
+/** 时间（批 B 任务 1）：只在大时钟一处显示"当前 / 总长"—— 大写当前、小写总长，层级不变但只占一半宽。
+    #vzTime 仍同步写入（id 与逻辑保留，视觉上是隐藏的），兼容任何外部读取。 */
+function paintTime(t,dur){
+  const d=(dur!=null&&isFinite(dur))?dur:transport.getDuration();
+  const cur=fmtTime(t),tot=fmtTime(d);
+  if(posMain)posMain.innerHTML=cur+'<span class="vz-of"> / '+tot+'</span>';
+  if(timeEl)timeEl.textContent=cur+' / '+tot;
+}
 function paint(t,dur){
-  if(posMain)posMain.textContent=fmtTime(t);
-  if(timeEl)timeEl.textContent=fmtTime(t)+' / '+fmtTime(dur||transport.getDuration());
+  paintTime(t,dur);
   if(seek&&dur)seek.value=String(Math.round(clamp(t,0,dur)/dur*SEEK_MAX));
 }
 function seekToUserValue(commit){
@@ -169,14 +315,21 @@ function onTime(t,dur){
   paint(t,dur);
 }
 /* ---------- 播放状态 → 按钮外观 ---------- */
+/* 提示行的两个可见 span（hintS 状态 / hintK 关键量）在文件上方创建；这里只放状态表与忙碌标记。
+   首屏字符 = 状态 + 关键量，控制在 30 字以内；长详情进 title / aria-label。 */
+/* 位置区副行（批 B 任务 1）：改作状态提示；工程摘要（describe()）移进它的 title，
+   这样"同一屏报三次时间/一次摘要"变成"一次时间 + 一条状态"，摘要仍随手可查。 */
+const STATE_WORD={idle:'就绪',loading:'预渲染中',playing:'播放中',paused:'已暂停',ended:'已播完'};
+let busyNow=false;
 const STATE_TIP={
-  idle:'就绪 · 按播放开始', loading:'预渲染中…',
-  playing:'播放中', paused:'已暂停', ended:'已播完 · 按播放从头开始'
+  idle:['就绪','按播放开始',''], loading:['预渲染中','',''],
+  playing:['播放中','',''], paused:['已暂停','',''], ended:['已播完','按播放从头开始','']
 };
 let hintTimer=0;                       // >0 时保留“预渲染摘要”这段时间，之后交还给状态提示
-function setHintInfo(text,holdMs){
+/** 显示一条有保留时间的提示（holdMs 后交还给播放状态提示） */
+function setHintInfo(status,key,detail,holdMs){
   if(!hint)return;
-  hint.textContent=text;
+  setHint(status,key,detail);
   hintTimer=holdMs?(performance.now()+holdMs):0;
 }
 function onState(s){
@@ -191,8 +344,12 @@ function onState(s){
   const has=transport.getDuration()>0;
   if(stopBtn)stopBtn.disabled=!has||s==='loading';
   if(seek)seek.disabled=!has;
-  if(hint&&STATE_TIP[s]&&!hint.dataset.busy&&hintTimer<=performance.now())
-    hint.textContent=STATE_TIP[s]+(has?(' · '+transport.getDuration().toFixed(1)+' 秒'):'');
+  if(hint&&STATE_TIP[s]&&!hint.dataset.busy&&hintTimer<=performance.now()){
+    const t=STATE_TIP[s];
+    setHint(t[0],(t[1]?t[1]+(has?' · ':''):'')+(has?transport.getDuration().toFixed(1)+' 秒':''),t[2]);
+  }
+  /* 位置区副行（批 B）：改作状态提示 —— 状态词（+ 工程摘要进 title） */
+  if(posSub&&!busyNow)posSub.textContent=STATE_WORD[s]||posSub.textContent;
 }
 transport.onStateChange(onState);
 transport.onTimeUpdate(onTime);
@@ -203,7 +360,14 @@ let rendering=false, renderCtl=null;
     label 可选：分析阶段把同一个取消按钮改叫“取消分析”（T5 之前不新增任何控件）。 */
 function setBusyUI(on,label){
   rendering=on;
+  busyNow=!!on;
   if(hint){ if(on)hint.dataset.busy='1'; else delete hint.dataset.busy }
+  if(stage)stage.classList.toggle('busy',!!on);      // 舞台顶部的 2px 不确定进度线（批 A 任务 2）
+  if(cancelBtn){
+    /* 批 B 任务 2：非忙碌时 display:none（不占顶栏），忙碌时才出现并淡入；元素/禁用逻辑/键盘焦点都保留 */
+    if(on)cancelBtn.dataset.busy='1'; else delete cancelBtn.dataset.busy;
+  }
+  if(on&&posSub)posSub.textContent=(label&&label.indexOf('分析')>=0)?'分析中':'渲染中';
   if(playBtn)playBtn.disabled=true;              // 渲染期间不可播放
   if(stopBtn)stopBtn.disabled=true;
   if(seek)seek.disabled=true;
@@ -217,6 +381,7 @@ async function renderAndLoad(p,opts){
   if(rendering)return {status:'busy',message:'正在渲染中'};
   setBusyUI(true);
   setBar(0,'0%');
+  setHint('渲染中','准备离线渲染…');            // 徽标立刻到位，之后进度只改详情（不闪）
   try{
     const o=Object.assign({},opts||{},{onController:c=>{ renderCtl=c }});
     /* onProgress 签名仍是 (pct,text)：进度条按 pct 推进，提示行与进度条标签同步显示文字 */
@@ -224,7 +389,10 @@ async function renderAndLoad(p,opts){
       const p=clamp(Number(pct)||0,0,100);
       if(renderFill)renderFill.style.width=p.toFixed(1)+'%';
       if(renderLab)renderLab.textContent=p.toFixed(0)+'%';
-      if(hint)hint.textContent=text||'';
+      /* 徽标保持"渲染中"（只在开始淡入一次），变化的是详情 —— 否则进度每 24 步就闪一次。
+         百分比不重复写：进度条右侧的标签已经在报数了；ETA 文字变化时给一次上滑淡入。 */
+      tickHintKey(text||'');
+      setHint('渲染中',text||'');
     },o);
     if(r&&r.status==='ok'){
       setBarDone();
@@ -232,17 +400,19 @@ async function renderAndLoad(p,opts){
       transport.load(r.buffer);
       invalidateCoverFeatures();        // FEAT-V4/T5：音频换了（换工程/换渲染长度/全曲重渲染）→ 封面/指纹的特征缓存作废
       onState('idle');
-      setHintInfo('预渲染完成 · notes='+r.notes+' · 音频 '+r.seconds.toFixed(1)+' 秒'+
-                  (r.partial?('（仅前 '+Math.round(r.seconds)+' 秒，可在顶部「渲染长度」切换）'):'')+
+      setHintInfo('预渲染完成',
+                  r.seconds.toFixed(1)+' 秒 · '+r.notes+' 音符',
+                  'notes='+r.notes+' · 音频 '+r.seconds.toFixed(1)+' 秒'+
+                  (r.partial?('（仅前 '+Math.round(r.seconds)+' 秒，可在顶部齿轮菜单里切换渲染长度）'):'')+
                   ' · 渲染 '+Math.round(r.renderMs||r.elapsed)+' ms（排期 '+r.scheduledSteps+' 步）· 按播放开始',3000);
     }else if(r&&r.status==='cancelled'){
       setBarCancelled();
-      setHintInfo('已取消渲染（工程仍可用）',2500);
+      setHintInfo('已取消','','渲染已停止 · 工程与播放器状态不变',2500);
     }else if(r&&r.status==='tooLong'){
-      if(hint)hint.textContent='工程过长（'+Math.round(r.seconds)+' 秒 / '+Math.round(r.bytes/1048576)+'MB），超过 7 分钟上限';
+      setHint('工程过长','约 '+Math.round(r.seconds)+' 秒 / '+Math.round(r.bytes/1048576)+'MB，超过 7 分钟上限');
       setBar(0,'超限');
     }else if(r&&r.status!=='busy'){
-      if(hint)hint.textContent='预渲染失败：'+((r&&r.message)||'未知原因');
+      setHint('预渲染失败',(r&&r.message)||'未知原因');
       setBar(0,'失败');
     }
     return r;
@@ -264,7 +434,8 @@ let analyzing=false, analyzeCtl=null, lastFeatures=null;
 /** 进度：与 audio.js 的 onProgress(pct,text) 对齐，写进度条与提示行（setBar 会清空提示行，故随后补写） */
 function paintAnalyzeProgress(pct,text){
   setBar(pct,Math.round(clamp(Number(pct)||0,0,100))+'%');
-  if(hint)hint.textContent=text||'';
+  tickHintKey(text||'');
+  setHint('分析中',text||'');        // 百分比交给进度条标签，详情只放阶段文字
 }
 /**
  * 整曲分析入口。
@@ -272,9 +443,9 @@ function paintAnalyzeProgress(pct,text){
  *        （封面/指纹这类"整曲肖像"用途：只渲染前 30 秒没有意义，见 T3.5 修复 2）
  */
 async function analyzeProject(opts={}){
-  if(analyzing){ if(hint)hint.textContent='分析正在进行中…'; return null }
+  if(analyzing){ setHint('分析中','已有一个分析任务在进行'); return null }
   if(!dataOk||!proj||!Array.isArray(proj.tracks)||!proj.tracks.length){
-    if(hint)hint.textContent='没有可分析的工程';
+    setHint('无可用工程','先回主应用生成或载入一个工程');
     return null;
   }
   const forceFull=!!(opts&&opts.forceFull);
@@ -295,13 +466,13 @@ async function analyzeProject(opts={}){
       transport.pause();
       const r=await renderAndLoad(proj,{maxSeconds:null});
       if(!r||r.status!=='ok'){
-        if(hint)hint.textContent='全曲渲染未完成，已取消分析'+(r&&r.message?('：'+r.message):'');
+        setHint('分析已取消','全曲渲染未完成'+(r&&r.message?('：'+r.message):''));
         return null;
       }
       buf=transport.getBuffer();
-      if(!buf){ if(hint)hint.textContent='全曲渲染没有产出音频，已取消分析'; return null }
+      if(!buf){ setHint('分析已取消','全曲渲染没有产出音频'); return null }
     }else if(!buf){
-      if(hint)hint.textContent='已取消：没有可用音频';
+      setHint('分析已取消','没有可用音频');
       return null;
     }else{
       partial=true;                      // 用户选择用现有的一段
@@ -311,6 +482,7 @@ async function analyzeProject(opts={}){
   analyzing=true;
   analyzeCtl=(typeof AbortController!=='undefined')?new AbortController():null;
   setBusyUI(true,'取消分析');
+  setHint('分析中','正在分析整曲…');
   const t0=(typeof performance!=='undefined'?performance.now():Date.now());
   try{
     const feat=await analyze(buf,proj,{
@@ -319,21 +491,21 @@ async function analyzeProject(opts={}){
     });
     if(!feat){                              // 被取消（analyzer 约定：取消返回 null）
       setBar(0,'已取消');
-      setHintInfo('分析已取消（工程与播放器状态不变）',2500);
+      setHintInfo('已取消','分析已停止 · 工程与播放器状态不变',2500);
       return null;
     }
     lastFeatures=feat;
     const ms=Math.round((typeof performance!=='undefined'?performance.now():Date.now())-t0);
     setBarDone();
-    setHintInfo('分析完成 · '+feat.duration.toFixed(1)+' 秒'+(partial?'（仅已渲染部分）':'')+
-                ' · 起音 '+feat.onsets.length+' · 段落 '+feat.segments.length+
-                ' · 调式 '+(feat.key?feat.key.name:'未推断')+
-                ' · 音符 '+feat.noteCount+' + 鼓点 '+feat.drumHits+
+    setHintInfo('分析完成',
+                feat.duration.toFixed(1)+' 秒 · '+feat.segments.length+' 段 · '+feat.noteCount+' 音符',
+                '起音 '+feat.onsets.length+' · 调式 '+(feat.key?feat.key.name:'未推断')+
+                ' · 鼓点 '+feat.drumHits+(partial?' · 仅已渲染部分':'')+
                 ' · 耗时 '+ms+' ms · 结果见 __vz.cover.last',5000);
     return feat;
   }catch(e){
     setBar(0,'失败');
-    if(hint)hint.textContent='分析失败：'+((e&&e.message)||e);
+    setHint('分析失败',(e&&e.message)||String(e));
     console.error('[viz-cover] 分析失败',e);
     return null;
   }finally{
@@ -345,7 +517,23 @@ async function analyzeProject(opts={}){
 
 /* ---------- UI 接线 ---------- */
 function bindTransportUI(){
-  if(playBtn)playBtn.addEventListener('click',()=>{ transport.toggle(); if(posMain)posMain.textContent=fmtTime(transport.getCurrentTime()) });
+  /* 返回主应用（批 C 第一部分）：支持 View Transitions 时走一次跨页淡入淡出（logo 会飞），
+     不支持就直接跳转；带修饰键的点击交还浏览器，保留"新标签页打开"。 */
+  const back=$('#vzBack');
+  if(back)back.addEventListener('click',e=>{
+    if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+    const href=back.getAttribute('href')||'./index.html';
+    try{
+      if(typeof document.startViewTransition==='function'){
+        e.preventDefault();
+        document.startViewTransition(()=>{ location.href=href });
+      }
+    }catch(err){
+      /* 过渡起不来也绝不能把用户卡住：已经 preventDefault 了，就自己补上这次跳转 */
+      location.href=href;
+    }
+  });
+  if(playBtn)playBtn.addEventListener('click',()=>{ transport.toggle(); paintTime(transport.getCurrentTime()) });
   if(stopBtn)stopBtn.addEventListener('click',()=>transport.stop());
   if(cancelBtn)cancelBtn.addEventListener('click',()=>{
     if(analyzing&&analyzeCtl){ analyzeCtl.abort(); return }   // 分析中：同一个按钮改作“取消分析”
@@ -366,7 +554,13 @@ function bindTransportUI(){
     if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA')return;
     if(e.code==='Space'){ e.preventDefault(); transport.toggle() }
     else if(e.code==='Home'){ e.preventDefault(); transport.seek(0) }
-    else if(e.code==='Escape'){ e.preventDefault(); transport.stop() }
+    else if(e.code==='KeyF'){ e.preventDefault(); toggleFps() }          // 批 B 任务 7：F 键显示/隐藏帧率
+    else if(e.code==='Escape'){
+      e.preventDefault();
+      /* Esc 的优先级：先关顶栏菜单 → 再停播放（此前 Esc 一按就停播，菜单开着时会"顺带停播"） */
+      if(menus.some(m=>m.menu.classList.contains('open'))){ closeMenus(null); return }
+      transport.stop();
+    }
   });
   window.addEventListener('pagehide',()=>transport.dispose());
   /* FEAT-V4/T6：离开页面（例如点左上角"返回主应用"）时，如果正在渲染/分析就弹一次浏览器原生确认，
@@ -380,7 +574,7 @@ function bindTransportUI(){
 
 /* ---------- 启动 ---------- */
 function boot(){
-  if(!cv||!ctx||!stage){ if(hint)hint.textContent='页面结构缺失：canvas 未找到'; return; }
+  if(!cv||!ctx||!stage){ setHint('页面结构缺失','canvas 未找到'); return; }
   const ro=(typeof ResizeObserver!=='undefined')?new ResizeObserver(()=>resize()):null;
   if(ro)ro.observe(stage);
   window.addEventListener('resize',resize);
@@ -407,17 +601,19 @@ function boot(){
   renderPicker();                          // 用注册表填充渲染器下拉
   /* 渲染器切换：V1 只有一项下拉时漏了这条监听，导致选中项改了却不换渲染器。
      select() 内部完成 dispose → init → 参数面板重建，主循环每帧重读 current()，下一帧即生效。 */
-  if(pick)pick.addEventListener('change',()=>select(pick.value));
+  if(pick)pick.addEventListener('change',()=>crossFadeCanvas(()=>select(pick.value)));
   {
     const all=list();
-    if(all.length&&!current())select(all[0].id);
+    if(all.length&&!current())select(all[0].id);      // 首次选中：入场淡入留给"数据就绪"那一刻（见 initData）
   }
   renderParams();
   if(!list().length){
     if(cardBody)cardBody.textContent='正在读取工程数据…';
-    if(hint)hint.textContent='V1 步骤 4/7 · 正在初始化…';
+    setHint('正在初始化','读取工程数据','第 4/7 步 · 主题 / 注册表 / 数据层已就绪');
   }
   if(fpsT===0)fpsT=performance.now();
+  /* .fadeIn 播完就摘掉类（不必再开一个 700ms 的定时器）：下一次再加就能重播 */
+  if(cv)cv.addEventListener('animationend',e=>{ if(e.animationName==='fadeIn')cv.classList.remove('fadeIn') });
   raf=requestAnimationFrame(frame);
   void initData();
 }
@@ -427,7 +623,8 @@ function setBar(pct,label){
   const p=clamp(Number(pct)||0,0,100);
   if(renderFill){ renderFill.style.width=p.toFixed(1)+'%'; renderFill.style.background='' }
   if(renderLab)renderLab.textContent=label||(Math.round(p)+'%');
-  if(hint)hint.textContent='';
+  /* 注意：这里**不动**提示行。进度每次回调都清空徽标再写回，会让徽标每 24 步重播一次淡入。
+     徽标由调用方用 setHint(status,detail) 负责，进度只改 detail。 */
 }
 function setBarCancelled(){
   if(renderFill){ renderFill.style.width='100%'; renderFill.style.background='var(--dim)' }
@@ -438,21 +635,55 @@ function setBarDone(){
   if(renderLab)renderLab.textContent='100%';
 }
 
-/* ---------- 预渲染长度下拉（默认 30 秒：秒见效果；切换即用新长度重渲染） ---------- */
+/* ---------- 预渲染长度下拉（默认 30 秒：秒见效果；切换即用新长度重渲染） ----------
+   批 B 任务 4：下拉本身移进齿轮菜单（#vzLen 原样保留，逻辑不变），这里顺带接线菜单开关。 */
 const DEFAULT_MAX_SECONDS=30;
 const MAX_SECONDS_UI=600;
 let maxSeconds=DEFAULT_MAX_SECONDS;
 function lenOpts(){ return maxSeconds==null?{}:{maxSeconds} }
+/* 顶栏菜单（设置 / 下载）统一开关：点按钮切、点外面关、Esc 关（Esc 优先关菜单，不停播放） */
+const menus=[];
+function closeMenus(except){
+  for(const m of menus){
+    if(m.menu===except)continue;
+    m.menu.classList.remove('open');
+    if(m.btn)m.btn.setAttribute('aria-expanded','false');
+  }
+}
+function bindMenu(btn,menu){
+  if(!btn||!menu)return null;
+  const rec={btn,menu};
+  menus.push(rec);
+  btn.addEventListener('click',e=>{
+    e.stopPropagation();
+    const open=!menu.classList.contains('open');
+    closeMenus(menu);
+    menu.classList.toggle('open',open);
+    btn.setAttribute('aria-expanded',open?'true':'false');
+  });
+  return rec;
+}
 function bindLengthUI(){
+  const setBtn=$('#vzSetBtn'), setMenu=$('#vzSetMenu');
+  const rec=bindMenu(setBtn,setMenu);
+  bindSelectPulse(lenSel);          // 批 C 补丁 2：渲染长度下拉的点击微反馈
+  bindSelectPulse(pick);            // 渲染器下拉同理
+  if(document.addEventListener)document.addEventListener('pointerdown',e=>{
+    if(!menus.length)return;
+    for(const m of menus){ if(m.menu.contains(e.target)||m.btn.contains(e.target))return }
+    closeMenus(null);
+  });
   if(!lenSel)return;
   lenSel.value=maxSeconds==null?'full':String(maxSeconds);
   lenSel.addEventListener('change',()=>{
     const v=lenSel.value;
     maxSeconds=(v==='full')?null:clamp(Number(v)||DEFAULT_MAX_SECONDS,5,MAX_SECONDS_UI);
-    if(!dataOk){ if(hint)hint.textContent='渲染长度已设为 '+(maxSeconds==null?'全曲':maxSeconds+' 秒')+'（载入工程后生效）'; return }
-    if(rendering){ if(hint)hint.textContent='渲染进行中，取消后再切换长度'; return }
+    closeMenus(null);                                   // 选完就收起菜单，动作与结果在同一拍
+    if(!dataOk){ setHint('渲染长度已设好','载入工程后生效','当前：'+(maxSeconds==null?'全曲':maxSeconds+' 秒')); return }
+    if(rendering){ setHint('渲染进行中','取消后再切换长度',''); return }
     void renderAndLoad(proj,lenOpts());
   });
+  void rec;
 }
 
 /* ---------- 第 2 步：数据装载（hash 优先 → localStorage.vizProject）→ 第 3/4 步：预渲染并载入 ---------- */
@@ -463,13 +694,15 @@ async function initData(){
   if(!p){
     dataOk=false;
     showEmpty();
-    if(hint)hint.textContent='V1 步骤 4/7 · 无可用数据（'+(info.reason||'未知原因')+'）';
+    setHint('无可用数据','','没有找到工程：'+(info.reason||'原因未知')+'。可回主应用点「可视化」把当前工程移交过来。');
     return;
   }
   dataOk=true;
   hideEmpty();
-  if(posSub)posSub.textContent=describe();
+  /* 批 B 任务 1：位置区副行改作状态提示，工程摘要（describe()）进它的 title —— 信息不丢，只是不再占版面 */
+  if(posSub){ posSub.textContent=STATE_WORD.idle; posSub.title=describe() }
   if(cardBody)cardBody.textContent='';
+  revealCanvas();                     // 画布入场（批 A 任务 7）：数据就绪这一刻淡入 + 轻推镜
   await renderAndLoad(p,lenOpts());
 }
 
@@ -520,7 +753,15 @@ function frame(ts){
   else drawEmpty();
   needRedraw=false;                        // 消费本帧的参数变更标志（markDirty 置位）
   frames++;
-  if(fpsEl&&ts-fpsT>=500){ fpsEl.textContent=Math.round(frames*1000/(ts-fpsT))+' FPS'; frames=0; fpsT=ts; }
+  if(fpsEl&&ts-fpsT>=500){
+    const v=Math.round(frames*1000/(ts-fpsT));
+    fpsEl.textContent=v+' FPS';
+    /* 批 B 任务 7：默认隐藏；F 键可开；连续 3 次低于 45 帧自动浮现（性能告警），恢复后自动收起 */
+    if(v<45)fpsLow=Math.min(fpsLow+1,4); else fpsLow=Math.max(fpsLow-1,0);
+    fpsEl.classList.toggle('on',fpsOn||fpsLow>=3);
+    fpsEl.classList.toggle('low',fpsLow>=3);
+    frames=0; fpsT=ts;
+  }
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});
@@ -575,10 +816,11 @@ window.__vz={view,list,current,select,register,data:dataMod,transport,registry:{
   /* 内存内演示工程 → 预渲染 → 直接载入播放器（不写 localStorage） */
   async loadDemo(){
     const p=makeDemoProject();
-    if(!p){ if(hint)hint.textContent='演示工程构造失败'; return {status:'error',message:'演示工程构造失败'} }
+    if(!p){ setHint('演示工程失败','',( '构造内存演示工程时出错：')); return {status:'error',message:'演示工程构造失败'} }
     dataOk=true;
     hideEmpty();
-    if(posSub)posSub.textContent=describe();
+    if(posSub){ posSub.textContent=STATE_WORD.idle; posSub.title=describe() }
+    revealCanvas();
     const r=await renderAndLoad(p);
     return r;
   },

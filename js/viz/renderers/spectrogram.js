@@ -239,13 +239,14 @@ function writeColumn(freqData,gain,gate){
 export const spectrogram={
   id:'spectrogram',
   label:'频谱瀑布',
-  /* params = 纯声明（键名即参数名）；当前值在 values（缺省回落 def） */
+  /* params = 纯声明（键名即参数名）；当前值在 values（缺省回落 def）
+     isPrimary（批 B 参数分级）：常驻面板的"手感"参数；其余收进「更多参数 (N)」，一个都不删 */
   params:{
-    gain:       {type:'range',min:.5,max:3,step:.1,def:1,label:'灵敏度',fixed:2},
+    gain:       {type:'range',min:.5,max:3,step:.1,def:1,label:'灵敏度',fixed:2,isPrimary:true},
     minFreq:    {type:'range',min:20,max:500,step:10,def:60,label:'最低频率',fixed:0},
-    historySec: {type:'range',min:5,max:30,step:1,def:20,label:'历史时长',fixed:0},
+    historySec: {type:'range',min:5,max:30,step:1,def:20,label:'历史时长',fixed:0,isPrimary:true},
     noiseGate:  {type:'range',min:0,max:.3,step:.01,def:.05,label:'噪声门',fixed:2},
-    colorScheme:{type:'select',label:'配色',options:[['rainbow','彩虹'],['theme','主题色']],def:'rainbow'},
+    colorScheme:{type:'select',label:'配色',options:[['rainbow','彩虹'],['theme','主题色']],def:'rainbow',isPrimary:true},
     sharpen:    {type:'toggle',def:true,label:'锐化'},
     showGrid:   {type:'toggle',def:false,label:'频率刻度'}
   },
