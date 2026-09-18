@@ -233,15 +233,14 @@ export async function renderProject(proj,onProgress,opts={}){
     const schedMs=Math.round(now()-schedT0);
 
     /* 渲染阶段：OfflineAudioContext 无法回报真实进度，改用时间估算驱动（每帧约两次 2D 空调用，开销可忽略）。
-       estDuration = 音频时长 × 1.5（实测约 1.4× 实时，1.5 保守），封顶 95%，渲染真正结束才跳 100%。 */
-    const estDuration=Math.max(0.8,est.seconds*1.5);
+       估算器 makeEta 负责倍率（历史速度 + 每 500ms 动态校正）与文案，这里只把 frac 映到进度条区间。 */
+    const eta=makeEta(est.seconds);
     const progRender=(ms)=>{
-      const frac=clamp(ms/1000/Math.max(0.001,estDuration),0,1);
-      const eta=Math.max(0,Math.ceil(estDuration-ms/1000));
-      prog(rendPct(frac),'生成音频中... 预计还需 '+eta+' 秒');
-      return frac;
+      const r=eta.step(ms);
+      prog(rendPct(r.frac),r.text);
+      return r.frac;
     };
-    prog(rendPct(0),'生成音频中... 预计还需 '+Math.ceil(estDuration)+' 秒');
+    prog(rendPct(0),eta.step(0).text);
     renderStarted=true;
     const renderT0=now();
     const tickTimer=setInterval(()=>{
@@ -263,8 +262,13 @@ export async function renderProject(proj,onProgress,opts={}){
     const buf=res.val;
     if(!buf||!buf.length){ console.error('[viz-render] 离线渲染结果为空'); return {status:'error',message:'离线渲染结果为空'} };
     prog(100,est.partial?('预渲染完成（仅前 '+Math.round(est.seconds)+' 秒）'):'预渲染完成');
+    /* 只有真正渲染成功才记录速度（取消/失败不记，免得把"被打断的短耗时"学成新基准） */
+    const actualRatio=renderMs/1000/Math.max(0.001,est.seconds);
+    const saved=writeRenderSpeed(actualRatio,est.seconds);
     return {status:'ok',buffer:buf,seconds:est.seconds,samples:buf.length,notes,
-            partial:!!est.partial,cappedTo:est.cappedTo,elapsed:now()-t0,renderMs,estRenderMs:Math.round(estDuration*1000),
+            partial:!!est.partial,cappedTo:est.cappedTo,elapsed:now()-t0,renderMs,estRenderMs:Math.round(eta.initialTotal*1000),
+            etaRatio:+eta.ratio.toFixed(3),etaBaseRatio:+eta.baseRatio.toFixed(3),etaFrom:eta.from,
+            actualRatio:+actualRatio.toFixed(3),speedSaved:saved,
             scheduledSteps:Sched,schedMs};
   }catch(e){
     console.error('[viz-render] 渲染失败',e);
@@ -273,6 +277,108 @@ export async function renderProject(proj,onProgress,opts={}){
     try{ if(proj)proj._ev=null }catch(e){}
     _busy=false; _activeCtl=null; _cancelFlag=false;
   }
+}
+
+/* =========================================================================
+   ETA（预计剩余时间）估算（FEAT-V6/T5 批 C 补丁）
+   OfflineAudioContext 没有任何进度 API，所以"还剩多久"只能估。
+   旧版固定用「音频时长 × 1.5」：实测同一台机器 30 秒音频只要 0.73×、72 秒却要 1.38×，
+   于是 ETA 常常先吓人（说还要几十秒）再提前很久结束 —— 用户反馈的"预测时间总是快数十秒"就是它。
+   现在三层：
+   ① 历史速度：渲染成功后把真实倍率写进 localStorage.vizRenderSpeed，下次同量级直接复用；
+   ② 首次 / 量级差 >50% 时回落到保守 1.2×（宁可报慢一点，也不要"闪太快"）；
+   ③ 渲染中每 500ms 校正：已用时间超过估算的 80% 说明估小了 → 用「已用 ÷ 音频时长」反推倍率
+      往外推（封顶 = 基准倍率 × 3，避免雪崩式外推）。
+   ========================================================================= */
+const SPEED_KEY='vizRenderSpeed';
+const RATIO_DEFAULT=1.2;                 // 首次 / 量级不匹配时的保守倍率
+const RATIO_MIN=0.2, RATIO_MAX=5;        // 存下来的极端值要夹住（机器卡顿/后台节流都可能写出离谱值）
+function readRenderSpeed(){
+  try{
+    const raw=localStorage.getItem(SPEED_KEY);
+    if(!raw)return null;
+    const o=JSON.parse(raw);
+    const r=Number(o&&o.ratio), d=Number(o&&o.audioDuration);
+    if(!isFinite(r)||r<=0||!isFinite(d)||d<=0)return null;
+    return {ratio:clamp(r,RATIO_MIN,RATIO_MAX),audioDuration:d,ts:Number(o&&o.ts)||0};
+  }catch(e){ return null }      // 隐私模式/坏数据都不该影响渲染
+}
+function writeRenderSpeed(ratio,audioDuration){
+  try{
+    if(!isFinite(ratio)||ratio<=0||!isFinite(audioDuration)||audioDuration<=0)return false;
+    localStorage.setItem(SPEED_KEY,JSON.stringify({
+      ratio:+clamp(ratio,RATIO_MIN,RATIO_MAX).toFixed(3),
+      audioDuration:+Number(audioDuration).toFixed(2),
+      ts:Date.now()
+    }));
+    return true;
+  }catch(e){ return false }
+}
+/** 本次该用哪个倍率：上次的音频时长与本次相差 <50% 才复用历史，否则回到保守值 */
+function pickRatio(seconds){
+  const h=readRenderSpeed();
+  if(!h)return {ratio:RATIO_DEFAULT,from:'default'};
+  const diff=Math.abs(h.audioDuration-seconds)/Math.max(h.audioDuration,seconds);
+  if(diff<0.5)return {ratio:h.ratio,from:'history',lastAudioSec:h.audioDuration};
+  return {ratio:RATIO_DEFAULT,from:'default',lastAudioSec:h.audioDuration};
+}
+/**
+ * ETA 估算器（纯计算，导出以便单测）：给出音频时长，反复调用 step(已用毫秒) 得到
+ * { frac, left, text, total, ratio, late, overdue }。渲染循环只用它的输出，不再自己算。
+ *
+ * 显示层（永不反弹，方案 A）：
+ *   · 剩余秒数只许变小：外推把 total 推高时，显示值取"历史最小"，不会从 6 秒弹回 15 秒；
+ *   · 一旦进入末期（剩余 ≤5 秒 或 已用 > 估算的 90%）就锁住，改成"即将完成"，不再报数字；
+ *   · 远超估算（已用 > 估算的 150%）改说"仍在渲染，请稍候"；
+ *   · 前 2 秒只说"启动中"（不报数字）。
+ * 学习层（方案 B）：渲染中的外推只用于进度条曲率与"下次的基准"（成功时按真实倍率写库，
+ *   见文件开头那段说明），不再拿来改当前显示的数字 —— 这正是"倒计时突然变大"的根因。
+ */
+export function makeEta(seconds,opts={}){
+  const sec=Math.max(0.001,Number(seconds)||0);
+  const given=(opts&&opts.ratio!=null&&isFinite(opts.ratio)&&opts.ratio>0);
+  const pick=given?{ratio:clamp(Number(opts.ratio),RATIO_MIN,RATIO_MAX),from:'given'}:pickRatio(sec);
+  const baseRatio=pick.ratio;
+  let ratio=pick.ratio;
+  let estTotal=Math.max(0.8,sec*ratio);
+  const initialTotal=estTotal;
+  let lastCalibMs=0;
+  let shownLeft=null;          // 已显示过的最小剩余秒数（单调递减的唯一来源）
+  let late=false, overdue=false;
+  return {
+    get total(){return estTotal},
+    get initialTotal(){return initialTotal},
+    get ratio(){return ratio},
+    baseRatio,
+    from:pick.from,
+    get late(){return late},
+    get overdue(){return overdue},
+    step(ms){
+      const m=Math.max(0,Number(ms)||0);
+      const elapsed=m/1000;
+      /* 每 500ms 校正一次：估小了就把倍率温和推高（封顶 = 基准 × 3），只影响进度条爬升 */
+      if(m-lastCalibMs>=500){
+        lastCalibMs=m;
+        if(elapsed>estTotal*0.8){
+          const observed=elapsed/sec;
+          ratio=clamp(Math.max(ratio,observed*1.25),RATIO_MIN,baseRatio*3);
+          estTotal=Math.max(estTotal,sec*ratio);
+        }
+      }
+      const frac=clamp(elapsed/Math.max(0.001,estTotal),0,1);
+      const rawLeft=Math.max(0,estTotal-elapsed);
+      const left=(shownLeft==null)?rawLeft:Math.min(shownLeft,rawLeft);   // 只许变小 → 永不反弹
+      shownLeft=left;
+      if(!late&&(left<=5||elapsed>estTotal*0.9))late=true;                // 进入末期就锁住，不再回头报数字
+      if(!overdue&&elapsed>estTotal*1.5)overdue=true;
+      let text;
+      if(elapsed<2)text='生成音频中… 启动中';
+      else if(overdue)text='生成音频中… 仍在渲染，请稍候';
+      else if(late)text='生成音频中… 即将完成';
+      else text='生成音频中… 还需 '+Math.ceil(left)+' 秒';
+      return {frac,left,text,total:estTotal,initialTotal,ratio,late,overdue};
+    }
+  };
 }
 
 /* 秒数 → m:ss（界面显示用） */
