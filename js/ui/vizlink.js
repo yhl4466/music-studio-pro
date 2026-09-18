@@ -26,6 +26,21 @@ export function validateVizPayload(json){
   return {ok:true,steps:Number(data.steps),tracks:data.tracks.length,ver:data.ver};
 }
 
+/* 跨页面过渡（FEAT-V6/T5 批 C 第一部分）：
+   · Chromium 126+ 对同源跨文档导航会自动做过渡（css/theme.css 里的 @view-transition{navigation:auto}）；
+   · 这里再包一层 startViewTransition，是为了同文档跳转/较旧实现也能受益，且**必须优雅降级**：
+     没有这个 API 时直接 location.href —— 功能一样，只是没有过渡动画。 */
+export function navigateWithTransition(url){
+  try{
+    if(typeof document!=='undefined'&&typeof document.startViewTransition==='function'){
+      document.startViewTransition(()=>{ location.href=url });
+      return true;
+    }
+  }catch(e){}
+  location.href=url;
+  return false;
+}
+
 function goVisualizer(){
   const json=serializeProject();
   const v=validateVizPayload(json);
@@ -38,7 +53,7 @@ function goVisualizer(){
     return false;
   }
   toast('已移交工程（'+v.steps+' 步 · '+v.tracks+' 轨）→ 正在打开可视化页','ok');
-  location.href='./visualizer.html';
+  navigateWithTransition('./visualizer.html');
   return true;
 }
 
