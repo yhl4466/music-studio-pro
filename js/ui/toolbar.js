@@ -73,6 +73,27 @@ export function setMeterFromUI(){
   applyMeter(n,d);
 }
 /* ---------- 顶部控件 ---------- */
+/* =========================================================================
+   侧栏（批 C 后补）：浮动覆盖层（Figma 式）—— 绝对定位盖在主区上方，主区宽度恒定不变。
+   默认收起（首次访问），展开状态记在 localStorage.mpSidebarOpen；只切 .open 类，不改 id/class 命名。
+   ========================================================================= */
+const SIDE_KEY='mpSidebarOpen';
+function readSideOpen(){
+  try{ return localStorage.getItem(SIDE_KEY)==='1' }catch(e){ return false }   // 无值 / 读不到 → 收起
+}
+function setSideOpen(on,persist){
+  if(!UI.side)return;
+  UI.side.classList.remove('hidden');          // 兼容旧机制留下的 .hidden（display:none 会盖掉覆盖层）
+  UI.side.classList.toggle('open',!!on);
+  const btn=$('#sideToggle');
+  if(btn){
+    btn.classList.toggle('on',!!on);
+    btn.setAttribute('aria-expanded',on?'true':'false');
+    btn.title=on?'收起右侧面板':'展开右侧面板';
+  }
+  if(persist!==false){ try{ localStorage.setItem(SIDE_KEY,on?'1':'0') }catch(e){} }
+}
+
 export function bindTopControls(){
   const syncBpm=v=>{proj.bpm=v;UI.bpm.value=v;UI.bpmNum.value=v;setPosStatus('BPM '+v,1200);if(A&&A.dl)A.dl.delayTime.value=Math.min(1.5,barSeconds()/2)};
   UI.bpm.addEventListener('input',()=>syncBpm(+UI.bpm.value));
@@ -137,12 +158,11 @@ export function bindTopControls(){
   UI.playBtn.addEventListener('click',()=>{ togglePlay(); syncPosStatus() });
   UI.metroBtn.addEventListener('click',()=>{setMetroOn(!metroOn);UI.metroBtn.classList.toggle('on',metroOn)});
   UI.loopBtn.addEventListener('click',()=>{setLoopOn(!loopOn);UI.loopBtn.classList.toggle('on',loopOn);toast(loopOn?'整曲循环播放':'单次播放（播完自动停止）')});
-  $('#brandBtn').addEventListener('click',()=>{setTab('ai')});
-  UI.aiBtn.addEventListener('click',()=>{setTab('ai');UI.side.classList.remove('hidden')});
-  $('#sideToggle').addEventListener('click',()=>{
-    const hidden=UI.side.classList.toggle('hidden');
-    $('#sideToggle').title=hidden?'展开右侧面板':'收起右侧面板';
-  });
+  $('#brandBtn').addEventListener('click',()=>{ setSideOpen(true); setTab('ai') });
+  UI.aiBtn.addEventListener('click',()=>{ setSideOpen(true); setTab('ai') });
+  /* 「▤ 侧栏」= 浮动覆盖层开关（默认收起；展开 280ms/--ease-out、收起 200ms/--ease-in 在 CSS 里） */
+  $('#sideToggle').addEventListener('click',()=>setSideOpen(!UI.side.classList.contains('open')));
+  setSideOpen(readSideOpen(),false);          // 进页面按上次状态摆好（首次访问 = 收起；不重复写库）
   $$('#sideTabs')?.forEach(()=>{});
   UI.sideTabs.forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
   // 菜单

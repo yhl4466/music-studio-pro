@@ -1,7 +1,13 @@
 /* [timeline.css] source: Pro.html lines 261-368, 565-620 (verbatim; responsive block must stay last) */
 /* ---------- 时间线 ---------- */
-.stageTop{display:flex;align-items:center;gap:10px;padding:10px 16px 8px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+/* 工具行（批 C 后补）：分组 + 统一 28px。
+   28 不是一个新 token 档 —— 只在 .stageTop 作用域内把 --h/--h-sm 降到 28，
+   于是行内所有控件（按钮 / 下拉 / 数字框 / 小方块按钮）自动统一到 28，且不动全局 3 档阶梯。
+   分组靠 index.html 里的 .vsep 竖线：行内 gap 4px + 竖线自身 1px + 两侧各 4px = 组间视觉 8px。 */
+.stageTop{--h:28px;--h-sm:28px;
+  display:flex;align-items:center;gap:4px;padding:10px 16px 8px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .stageTop .t1{font-size:12px;color:var(--mut);margin-right:auto;display:flex;gap:8px;align-items:center}
+.vsep{flex:none;width:1px;height:24px;background:var(--hair-2);margin:0 4px}
 .keyChip{font-size:11px;color:var(--acc);border:1px solid rgba(var(--acc-rgb),.4);padding:3px 9px;border-radius:20px;
   background:rgba(var(--acc-rgb),.08)}
 .timeline{flex:1;overflow:auto;position:relative;background:
@@ -135,11 +141,12 @@
 }
 @media (max-width:720px){
   .wrap{flex-direction:column}
-  .side{width:100%;height:46vh;border-left:none;border-top:1px solid var(--line)}
+  /* 窄屏同样保持"浮动覆盖"语义：从右侧滑出，宽度按视口收缩（不再是 46vh 的底栏，那与覆盖层语义冲突） */
+  .side{width:min(88vw,300px);height:auto;top:0;bottom:0;left:auto;margin-top:0;
+    border-left:1px solid var(--line);border-top:none}
   .sideBody{min-height:0}
   .topbar .brand{min-width:0}
   .pc{touch-action:none}
-  .side{margin-top:2px}
   .seekBar{padding:6px 10px 4px;gap:8px}
   .seekLbl{min-width:70px}
   .tabs button{padding:7px 10px;font-size:12px}

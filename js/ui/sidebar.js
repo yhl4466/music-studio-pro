@@ -461,6 +461,11 @@ export function renderAiTab(){
     fw.appendChild(mBtn);
     b.appendChild(makeFoldable(fw,'styleTransfer','风格迁移'));
   }
-  b.appendChild(el('div','modeNote','AI 会自动创建鼓组、贝斯、和声与旋律音轨并完成整首编曲。<br>生成后按 <b style="color:var(--acc)">空格</b> 试听；不满意就点「换种子再创作」，也可以切到 <b>'+icon('faders')+' 轨道/混音</b> 单独让 AI 重写某一条音轨。'));
+  /* AI 面板底部提示（批 C 后补）：压到 3 行 bullet —— 信息与原来等价（自动配器 / 空格试听 / 两个出口），
+     只是不再写成一段长句；id/class 与结构都没动。 */
+  b.appendChild(el('div','modeNote',
+    '・AI 自动创建鼓组、贝斯、和声与旋律音轨<br>'+
+    '・生成后按 <b style="color:var(--acc)">空格</b> 试听<br>'+
+    '・不满意 → 点「换种子再创作」，或切到 <b>'+icon('faders')+' 轨道/混音</b> 单轨重写'));
   box.appendChild(b);
 }

@@ -132,13 +132,24 @@ input[type=range]:disabled{opacity:.5;cursor:not-allowed}
 .vizBox canvas{width:100%;height:100%;display:block}
 
 /* ---------- 布局 ---------- */
-.wrap{height:calc(100% - 56px);display:flex;min-height:0}
+body{overflow-x:hidden}      /* 收起时侧栏停在视口右侧之外，不该产生横向滚动条 */
+.wrap{height:calc(100% - 56px);display:flex;min-height:0;position:relative}   /* 侧栏浮动覆盖的定位基准 */
 .stage{flex:1;display:flex;flex-direction:column;min-width:0}
-.side{width:352px;flex:none;border-left:1px solid var(--line);
+/* 侧栏 = 浮动覆盖层（Figma 式）：绝对定位盖在主区上方，**不改主区宽度**（收起时主区直接多出 352px）。
+   展开 280ms/--ease-out、收起 200ms/--ease-in（与批 3 的"退出 = 进入 × 0.75"一致）；
+   展开时加 --shadow-2 表示"浮在上方"。收起的侧栏 visibility:hidden（0s + 延迟切换），
+   这样它的控件不会在收起状态下被 Tab 聚焦到，同时收起动画仍然看得见。 */
+.side{position:absolute;top:0;right:0;bottom:0;width:352px;z-index:40;
+  border-left:1px solid var(--line);
   background:linear-gradient(180deg,rgba(14,21,38,.6),rgba(11,16,29,.55));
   background:var(--glass);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
-  box-shadow:var(--shadow-1);
-  display:flex;flex-direction:column;min-height:0}
+  box-shadow:none;
+  display:flex;flex-direction:column;min-height:0;
+  visibility:hidden;transform:translateX(100%);
+  transition:transform var(--dur-fast) var(--ease-in),box-shadow var(--dur-fast) var(--ease-in),
+    visibility 0s var(--ease-linear) var(--dur-fast)}
+.side.open{visibility:visible;transform:translateX(0);box-shadow:var(--shadow-2);
+  transition:transform var(--dur-base) var(--ease-out),box-shadow var(--dur-base) var(--ease-out),visibility 0s var(--ease-linear)}
 @media(max-width:1200px){.side{width:320px}.brand b{display:none}.vizBox{display:none}.knobGrp .rangeW{width:84px}}
 
 .sideTabs{display:flex;gap:4px;padding:10px 10px 0;background:var(--glass);
@@ -307,12 +318,15 @@ input.numTickAlt{animation:numTickSoftAlt var(--dur-fast) var(--ease-out)}
 .zoomGrp{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--line2);border-radius:var(--r-sm);padding:2px 5px;background:var(--card)}
 .zoomGrp button{width:var(--h-sm);height:var(--h-sm);padding:0;border-radius:var(--r-xs);border:1px solid transparent;background:transparent;color:var(--mut);cursor:pointer;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;
   transition:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out)}
-.zoomGrp button:hover{color:var(--txt);background:var(--hover);border-color:var(--sig)}
+.zoomGrp button:hover{color:var(--txt);background:var(--hover)}     /* hover 只改背景（不位移、不改边框） */
 .zoomGrp .zv{font:600 11px var(--mono);color:var(--acc);min-width:38px;text-align:center;user-select:none}
 .zoomGrp .fit{color:var(--dim)}
 .zoomGrp .fit:hover{color:var(--acc)}
-.zoomGrp button.on{background:rgba(var(--acc-rgb),.14);color:var(--acc);box-shadow:inset 0 0 0 1px rgba(var(--acc-rgb),.45)}
+/* 选中的工具/开关：信号色实底 + 反色文字（批 C 后补，原来是一圈半透明内描边） */
+.zoomGrp button.on{background:var(--sig);color:var(--on-acc)}
 .zoomGrp button:disabled{opacity:.35;cursor:not-allowed}
+/* 纯图标按钮（.icoBtn：撤销/重做等）：方形的 28px，图标居中 */
+.btn.icoBtn{padding:0;width:var(--h);justify-content:center}
 .toolGrp{background:var(--card)}
 .toolGrp button{font-size:12px;width:24px}
 /* 区域选择（复制/粘贴）高亮：同样补高权重，保证拍线上也能看到选区 */

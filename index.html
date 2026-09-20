@@ -123,18 +123,22 @@
         <option value="7/8">7/8</option>
         <option value="12/8">12/8</option>
       </select>
+      <!-- 批 C 后补：工具行按功能分组（调性 / 绘制 / 复制 / 量化 / 细分 / 撤销 / 编辑 / 缩放），
+           组间用 .vsep 竖线（--hair-2）分隔；行内 gap 4px + 竖线两侧各 4px = 组间视觉 8px -->
+      <span class="vsep" aria-hidden="true"></span>
       <div class="zoomGrp toolGrp" title="绘制工具：画笔=点/拖画（从亮格拖=擦）；橡皮=点/拖擦；选区=拖一段用于 复制/区域量化。任意工具下按住 Shift 拖也可以直接框选">
-        <button id="toolPaint" class="on" title="画笔：点/拖画音符"></button>
-        <button id="toolErase" title="橡皮：点/拖擦除"></button>
-        <button id="toolSel" title="选区/区域量化：按住左键拖出一个框（和文件管理器选文件一样），松开后即可复制 或 只量化这一段；或按住 Shift 拖动直接框选"></button>
+        <button id="toolPaint" class="on" title="画笔：点/拖画音符" aria-label="画笔工具"></button>
+        <button id="toolErase" title="橡皮：点/拖擦除" aria-label="橡皮工具"></button>
+        <button id="toolSel" title="选区/区域量化：按住左键拖出一个框（和文件管理器选文件一样），松开后即可复制 或 只量化这一段；或按住 Shift 拖动直接框选" aria-label="选区工具"></button>
       </div>
+      <span class="vsep" aria-hidden="true"></span>
       <div class="zoomGrp clipGrp" title="复制/粘贴：先框选一段并复制（Ctrl+C），把播放头移到目标轨的起点（或 Alt 点目标格定位）后粘贴（Ctrl+V）">
-        <button id="copyBtn" title="复制选区 (Ctrl+C)"></button>
-        <button id="pasteBtn" title="粘贴 (Ctrl+V)"></button>
+        <button id="copyBtn" title="复制选区 (Ctrl+C)" aria-label="复制选区"></button>
+        <button id="pasteBtn" title="粘贴 (Ctrl+V)" aria-label="粘贴"></button>
         <span class="zv" id="regionInfo" style="min-width:0;text-align:left"></span>
       </div>
-      <span class="miniLbl" style="margin:0">量化</span>
-      <select class="miniSel" id="quantGrid" title="量化到的最小音符粒度（16 分=原样；有选区时只量化选区）">
+      <span class="vsep" aria-hidden="true"></span>
+      <select class="miniSel" id="quantGrid" title="量化到的最小音符粒度（16 分=原样；有选区时只量化选区）" aria-label="量化网格">
         <option value="1">1/16</option>
         <option value="2" selected>1/8</option>
         <option value="4">1/4</option>
@@ -142,7 +146,8 @@
       <div class="rangeW" style="width:70px"><input type="range" id="quantStr" min="0" max="100" value="100" title="量化强度（%靠近网格；0=不动）"></div>
       <button class="btn sm" id="quantBtn" title="把音符吸附到网格（有选区=只量化选区）">吸附</button>
       <span class="qEst" id="quantEst"></span>
-      <select class="miniSel" id="rhythmSel" style="width:auto" title="选区节奏细分：把选区里每拍的起音改成 N 等分精确时值（2/3/4/5/6 连音），或还原成普通网格">
+      <span class="vsep" aria-hidden="true"></span>
+      <select class="miniSel" id="rhythmSel" style="width:auto" title="选区节奏细分：把选区里每拍的起音改成 N 等分精确时值（2/3/4/5/6 连音），或还原成普通网格" aria-label="连音数">
         <option value="2">2 连音</option>
         <option value="3" selected>3 连音</option>
         <option value="4">4 连音</option>
@@ -151,8 +156,12 @@
         <option value="0">还原为网格</option>
       </select>
       <button class="btn sm" id="rhythmBtn" title="先在旋律/鼓组轨上框选整数拍（选区工具 或 Shift+拖），再点这里应用细分">应用细分</button>
-      <button class="btn sm" id="undoBtn" disabled title="撤销 Ctrl+Z"><span class="ico ico-undo" aria-hidden="true"></span>撤销</button>
-      <button class="btn sm" id="redoBtn" disabled title="重做 Ctrl+Shift+Z"><span class="ico ico-redo" aria-hidden="true"></span>重做</button>
+      <span class="vsep" aria-hidden="true"></span>
+      <!-- 撤销/重做改纯图标按钮（28px 方形，与画笔/橡皮/选区/复制/粘贴同一套）；
+           文字进 title，label 用 aria-label 保住读屏 -->
+      <button class="btn sm icoBtn" id="undoBtn" disabled title="撤销 Ctrl+Z" aria-label="撤销"><span class="ico ico-undo" aria-hidden="true"></span></button>
+      <button class="btn sm icoBtn" id="redoBtn" disabled title="重做 Ctrl+Shift+Z" aria-label="重做"><span class="ico ico-redo" aria-hidden="true"></span></button>
+      <span class="vsep" aria-hidden="true"></span>
       <!-- 批 C 第三部分：低频的 4 个编辑动作从常驻收进「编辑 ▾」菜单（id / 事件绑定一律不变，
            结构上只是换了父节点；菜单项的 .mi 类让它们与主菜单同一套观感与交错动效） -->
       <div class="menuWrap" id="editWrap">
@@ -165,6 +174,7 @@
           <button class="mi" id="followBtn" title="播放时自动滚动时间线跟随播放头"><span class="ico ico-follow" aria-hidden="true"></span>跟随</button>
         </div>
       </div>
+      <span class="vsep" aria-hidden="true"></span>
       <div class="zoomGrp" title="时间线视图缩放（只改变显示大小，不改曲长/音符）">
         <button id="zoomOut" title="缩小"></button><span class="zv" id="zoomV">100%</span><button id="zoomIn" title="放大"></button><button id="zoomFit" class="fit" title="适配窗口宽度（长曲缩放下限 50%，横向滚动查看）"></button>
       </div>

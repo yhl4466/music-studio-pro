@@ -150,3 +150,94 @@ export function downloadBlob(blob,name){
 /* 跨模块晚绑定注册表：由 main.js 在 boot 前注入，用于打断 ui ↔ audio/io 的循环依赖 */
 export const hooks={inspector:null,afterLoad:null,ui:null,undo:null,seek:null,toolbar:null};
 export function setHooks(map){Object.assign(hooks,map||{})}
+
+/* =========================================================================
+   滑块已取值段（bug 修复）
+   -------------------------------------------------------------------------
+   CSS 里 input[type=range] 的"已取值段"是靠 background 的第一层渐变宽度画的：
+     linear-gradient(90deg,var(--sig),var(--sig)) 0/var(--fill,50%) 100% no-repeat
+   但 --fill 一直没人写，于是所有滑块永远停在 50%，与滑块位置不符。
+   这里把 --fill 同步成 (value-min)/(max-min)，并覆盖三条路径：
+     1) 页面加载即初始化一次（不是等第一次拖动才对）；
+     2) input/change（拖动、键盘、程序化派发）即时跟随；
+     3) 动态创建的滑块（侧栏面板、viz 参数面板等）自动接管。
+   变量名 --fill 保持不变；不改任何现有功能，纯补写一个此前空置的 CSS 变量。
+   ========================================================================= */
+const _hooked=new WeakSet();
+/* 程序化赋值（seek.value=… 每帧刷新、载入工程回填 BPM/音量、面板重建）不派发 input 事件，
+   所以在元素上装一个可配置的 value 存取器：写入后立刻重算 --fill。
+   只作用于 range 控件，仅多写一个 CSS 变量，不改变取值语义（仍走原生 setter，含 step 吸附）。 */
+function _hookValue(el){
+  if(_hooked.has(el))return;
+  _hooked.add(el);
+  try{
+    if(typeof HTMLInputElement!=='function')return;
+    if(!(el instanceof HTMLInputElement))return;         // 只拦真控件，避免劫持普通对象
+    const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+    if(!d||!d.get||!d.set)return;
+    Object.defineProperty(el,'value',{configurable:true,
+      get(){return d.get.call(this)},
+      set(v){d.set.call(this,v);syncRangeFill(this)}});
+  }catch(e){}
+}
+export function syncRangeFill(el){
+  if(!el||el.type!=='range')return;
+  const min=Number(el.min||0),max=Number(el.max||100);
+  const span=(isFinite(min)&&isFinite(max))?(max-min):0;
+  const val=Number(el.value);
+  const pct=span>0?clamp((val-min)/span*100,0,100):0;   // min==max / 非法区间 → 0
+  const s=pct.toFixed(2)+'%';
+  if(el.__fillPct!==s){                                  // 值没变就不写样式，避免多余 mutation
+    el.__fillPct=s;
+    try{el.style.setProperty('--fill',s)}catch(e){}
+  }
+  _hookValue(el);
+}
+export function syncAllRangeFills(root){
+  try{
+    const scope=(root&&root.querySelectorAll)?root:document;
+    scope.querySelectorAll('input[type=range]').forEach(syncRangeFill);
+  }catch(e){}
+}
+let _rangeBound=false;
+export function bindRangeFills(){
+  if(_rangeBound)return;
+  if(typeof document==='undefined'||!document.addEventListener)return;
+  _rangeBound=true;
+  const onVal=e=>{const t=e.target;if(t&&t.type==='range')syncRangeFill(t)};
+  document.addEventListener('input',onVal,true);      // 拖动 / 键盘 / 手动派发
+  document.addEventListener('change',onVal,true);
+  /* 程序化赋值（载入工程改 BPM、素材时长回填等）不派发 input 事件，
+     用户一碰页面就整页补同步一次；rAF 合并，避免连续事件重复扫描 */
+  let raf=0;
+  const sweep=()=>{
+    if(raf)return;
+    if(typeof requestAnimationFrame!=='function')return;
+    raf=requestAnimationFrame(()=>{raf=0;syncAllRangeFills()});
+  };
+  document.addEventListener('pointerdown',sweep,true);
+  document.addEventListener('keydown',sweep,true);
+  document.addEventListener('focusin',sweep,true);
+  const init=()=>syncAllRangeFills();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});
+  else init();
+  /* 动态创建的滑块：小批量新增（面板/参数面板重建）立即同步，不等渲染帧；
+     大批量新增（时间线重建）合并到下一帧整页扫一次；两条路径都有时间闸门，
+     重建时间线时不会退化成"每批一次整页查询"。 */
+  try{
+    if(typeof MutationObserver==='function'){
+      let lastScan=0;
+      const obs=new MutationObserver(muts=>{
+        let small=false;
+        for(const m of muts)if(m.addedNodes&&m.addedNodes.length&&m.addedNodes.length<=8)small=true;
+        if(small){
+          const t=Date.now();
+          if(t-lastScan>100){lastScan=t;syncAllRangeFills();return}
+        }
+        sweep();
+      });
+      obs.observe(document.body||document.documentElement,{childList:true,subtree:true});
+    }
+  }catch(e){}
+}
+bindRangeFills();   // 在 util.js 内自启：index 与 visualizer 两页共用同一份 util.js

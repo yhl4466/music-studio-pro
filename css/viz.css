@@ -265,13 +265,16 @@ label.vz-lab>.vz-select{font-size:var(--fs-body)}
   transition:grid-template-rows var(--dur-base) var(--ease-out)}
 .vz-more.open{grid-template-rows:1fr}
 .vz-more>div{overflow:hidden;display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
-/* 滑块（任务 5）：与主应用 input[type=range] 同款 —— 轨 4px 方角、拇指 12px 方形、无辉光 */
+/* 滑块（任务 5）：与主应用 input[type=range] 同款 —— 轨 4px 方角、拇指 12px 方形、无辉光；
+   已取值段同样用 --fill（由 util.js 的 syncRangeFill 写入，与主应用共用同一套变量） */
 .vz-pRange,.vz-range{width:110px;height:18px;-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}
-.vz-pRange::-webkit-slider-runnable-track,.vz-range::-webkit-slider-runnable-track{height:4px;border-radius:var(--r-xs);background:var(--well)}
+.vz-pRange::-webkit-slider-runnable-track,.vz-range::-webkit-slider-runnable-track{height:4px;border-radius:var(--r-xs);
+  background:linear-gradient(90deg,var(--sig),var(--sig)) 0/var(--fill,50%) 100% no-repeat,var(--well)}
 .vz-pRange::-webkit-slider-thumb,.vz-range::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border-radius:var(--r-xs);background:var(--sig);border:none;transition:transform var(--dur-instant) var(--ease-out)}
 .vz-pRange::-webkit-slider-thumb:hover,.vz-range::-webkit-slider-thumb:hover{transform:scale(1.1)}
 .vz-pRange:active::-webkit-slider-thumb,.vz-range:active::-webkit-slider-thumb{transform:scale(1.15)}
-.vz-pRange::-moz-range-track,.vz-range::-moz-range-track{height:4px;border-radius:var(--r-xs);background:var(--well)}
+.vz-pRange::-moz-range-track,.vz-range::-moz-range-track{height:4px;border-radius:var(--r-xs);
+  background:linear-gradient(90deg,var(--sig),var(--sig)) 0/var(--fill,50%) 100% no-repeat,var(--well)}
 .vz-pRange::-moz-range-thumb,.vz-range::-moz-range-thumb{width:12px;height:12px;border:none;border-radius:var(--r-xs);background:var(--sig)}
 /* 复选框（任务 6）：16×16 / 2px 圆角 / --ctl-bg2 底 / 选中 --sig 实底 + 白色勾（纯 CSS 画） */
 .vz-pCheck,.vz-cover-hd>input,#vzCoverHd{
