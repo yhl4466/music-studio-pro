@@ -1,5 +1,5 @@
 /* [midi.js] source: Pro.html 2496-2787（SMF 格式 1 导出 / 导入） */
-import { proj, newTrack, allocPat, meterN, meterD, SPB, rowMidi, MAX_BARS } from '../core/state.js';
+import { proj, newTrack, allocPat, meterN, meterD, SPB, rowMidi, rowMidiAt, MAX_BARS } from '../core/state.js';
 import { KIT, MEL_ROWS, SCALES, ROLES, PREC_U_PER_STEP, trackRows } from '../core/theory.js';
 import { toast, downloadBlob, UI, hooks } from '../core/util.js';
 import { beginEdit, commitEdit, markDirtyUI, setPendingPre } from './project.js';
@@ -38,7 +38,7 @@ export function notesOfTrack(t,ti,stepT){
         out.push([st,note,90,velOf(p.vel)]);
         out.push([st+Math.round((p.durU||PREC_U_PER_STEP)*uTick),note,80,0]); // 真实精确时值（原为硬编码半步，会丢失连音时值导致导入端无法还原）
       }else{
-        const midi=rowMidi(t,p.row);
+        const midi=rowMidiAt(t,p.row,Math.floor(p.u/PREC_U_PER_STEP)); // 精确时值音符同样计入该步的升降号
         out.push([st,midi,90,velOf(p.vel)]);
         out.push([st+(p.durU||PREC_U_PER_STEP)*uTick,midi,80,0]); // 真实精确时值
       }
@@ -271,6 +271,8 @@ export function importMidiData(m){
     const st=r.on/noteTicks;                        // 精确位置（可能落在 16 分网格之间）
     const s0=Math.round(st);
     const durF=(r.off-r.on)/noteTicks;              // 时值（步）
+    // 导入反解：只用 rowMidi（自然音级）—— MIDI 音高无法区分“谱面 ♯”与“调内音”，
+    // 因此导入端刻意不猜 acc：升号会落在最近的自然音级上，音高听感保持、记号不还原（诚实限制，见汇报）
     // 精确时值判定：起点偏离网格 ±0.02 步（≈1.2u），或（非鼓组）时值不是整数步——后者用于 3 连音中
     // 正好落在网格上的首音（u=0/240…），它同样是 prec（时值 80u≈1.33 步）；鼓组导出恒用半步时值，故排除
     const offGrid=Math.abs(st-Math.floor(st))>0.02||(r.ch!==9&&Math.abs(durF-Math.round(durF))>0.02);

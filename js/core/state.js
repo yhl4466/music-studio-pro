@@ -1,5 +1,5 @@
 /* [state.js] source: Pro.html 854-869, 922, 974-978, 1017-1071, 1093, 1547, 1661-1678, 2143-2147 */
-import { PREC_U_PER_STEP, KIT, MEL_ROWS, ROLES, ENGINE_DEF, ROLE_VOL, degSemi, keyBaseMidi, trackRows } from './theory.js';
+import { PREC_U_PER_STEP, KIT, MEL_ROWS, ROLES, ENGINE_DEF, ROLE_VOL, degSemi, keyBaseMidi, trackRows, accOf } from './theory.js';
 /* 每小节步数：一律“每拍 4 格”的十六分网格（spb 已惰性化，不再影响逻辑） */
 /* 拍号 / 网格换算 */
 export function stepsPerQuarter(){return 4}
@@ -31,6 +31,9 @@ export function rowMidi(t,r){
   const kb=keyBaseMidi(proj.key,(t&&t.keyOct)?t.keyOct:proj.keyOct);
   return kb+(t&&t.shift||0)+degSemi(proj.mode,r);
 }
+/* 某一轨某行某步的绝对 MIDI（= rowMidi + 该格升降号偏移）。
+   step 未传 / t.acc 不存在 / 该格无标记 → 等价于 rowMidi(t,r)；旧调用点保持 rowMidi 不动。 */
+export function rowMidiAt(t,r,step){return rowMidi(t,r)+accOf(t,step,r)}
 export function newTrack(kind,role,opts={}){
   const r=ROLES[role]||ROLES.custom;
   const eng=(kind==='mel')?(opts.engine||r.defEngine):null;
@@ -48,6 +51,9 @@ export function newTrack(kind,role,opts={}){
     collapsed:false,
     // pattern: pattern[step][row] = velocity(0=关)
     pat:[],
+    // acc：升降号标记 {[step]:{[row]:-1|0|1}}（稀疏，0 不落键；读写走 theory.js 的 accOf/setAcc）。
+    // 只对旋律轨有意义（音高 = rowMidiAt(t,row,step)）。搬运规则见 ui/timeline.js 的 moveAcc。
+    acc:{},
     // prec：选区节奏细分产生的精确时值音符——{row,u,durU,vel}
     // u 单位：1 步 = PREC_U_PER_STEP(60)u、1 拍 = 240u；各轨道独立，只影响本轨
     prec:[],

@@ -1,7 +1,7 @@
 /* [toolbar.js] source: Pro.html 870-921, 3002-3229, 4593-4607, 4881-4950, 4952-5002
    （顶栏控件/菜单/音轨按钮/拍号/帮助/快捷键；最上层 UI 模块，可 import 其余 ui 模块） */
 import { proj, setProj, actx, A, uiZoom, setUiZoom, uiTab, setUiTab, selTrack, stepsPerQuarter, stepsPerBeat, meterN, meterD, meterLabel, SPB, beatSteps, barSeconds, isStraightFourFour, aiMeterOK, fmtPos, stepDurNow, stepWidth, effStepWidth, ensurePatSizes, pruneTrackPrec, patRows, allocPat, rowMidi, newTrack, uid, blankProject, applyTrackPatSize, demoProject, MAX_BARS, ZOOM_MIN } from '../core/state.js';
-import { PREC_U_PER_STEP, KIT, ROLES, ENGINE_NAMES, ENGINE_DEF, ROLE_VOL, KEY_NAMES, SCALES, SCALE_NAMES, MEL_ROWS, noteNameOf, keyBaseMidi, midiOfRow, octRowsOf, trackRows } from '../core/theory.js';
+import { PREC_U_PER_STEP, KIT, ROLES, ENGINE_NAMES, ENGINE_DEF, ROLE_VOL, KEY_NAMES, SCALES, SCALE_NAMES, MEL_ROWS, noteNameOf, keyBaseMidi, midiOfRow, octRowsOf, trackRows, setAcc } from '../core/theory.js';
 import { $, $$, el, clamp, ri, rf, pick, chance, lerp, pad2, debounce, makeRng, toast, icon, UI, downloadBlob, exportProgressElEnsure, exportProgressStart, exportProgressSet, exportProgressStop, hooks } from '../core/util.js';
 import { LS_KEY, LIB_KEY, libRead, libWrite, libMeta } from '../core/storage.js';
 import { eqState, applyEqUI, getTrackBus, numSafe, noiseBuf, makeIR, buildGraph, applyTrackVolBus, ensureAudio, setMasterVol, setGate } from '../audio/master.js';
@@ -55,6 +55,19 @@ export function applyMeter(n,d){
         if(nu+(p.durU||defU)<=bar*perBarU+perBarU)out.push({row:p.row,u:nu,durU:p.durU||defU,vel:p.vel});
       });
       t.prec=out;
+    }
+    /* 升降号按“小节内位置”跟着音符一起重定位（与上面 pat 同一套换算）：
+       小节被缩短而丢掉的格子，其记号也一并丢弃；没被丢的记号必须跟到新步号上，
+       否则新位置的音会丢掉记号、旧位置的空格会留下幽灵 ♯。 */
+    if(t.acc&&Object.keys(t.acc).length){
+      const src=t.acc;t.acc={};
+      for(const k in src){
+        const s=+k,bar=Math.floor(s/oldSPB),inBar=s%oldSPB;
+        if(inBar>=newSPB)continue;
+        const dst=bar*newSPB+inBar;
+        if(dst>=newSteps)continue;
+        for(const rr in src[k])setAcc(t,dst,+rr,src[k][rr]);
+      }
     }
   });
   proj.steps=newSteps;
@@ -331,6 +344,7 @@ export function clearSelTrack(){
   const rows=patRows(t);
   for(let s=0;s<proj.steps;s++)for(let r=0;r<rows;r++)t.pat[s][r]=0;
   if(t.prec)t.prec=[]; // 连节奏细分的精确音符一起清
+  if(t.acc)t.acc={};   // 升降号也一起清（否则会在空格上留下幽灵 ♯，且下次画音会“继承”旧记号）
   paintAll();rebuildEvents();markDirtyUI();commitEdit();toast('已清空「'+t.name+'」');
 }
 export function clearAll(){
@@ -391,7 +405,7 @@ export function showHelp(){
     <div class="h2">② 手动编辑（时间线）</div>
     <div class="small" style="line-height:1.9">
       ・ 旋律轨按音阶度数分行（转调自动跟随），鼓组 8 行合成鼓；点行名可试听。<br>
-      ・ <span style="color:var(--acc)">左键拖拽</span>画音符（从亮格拖=擦除）· <b>右键</b>擦除 · <b>Shift+单击亮音</b>=切重音/普通。<br>
+      ・ <span style="color:var(--acc)">左键拖拽</span>画音符（从亮格拖=擦除）· <b>右键</b>打开音符菜单（♯ 升 / ♭ 降 / ♮ 还原 / 擦除）· <b>Shift+单击亮音</b>=切重音/普通。<br>
       ・ <b>格子太小点不准？</b>Ctrl+滚轮 或点顶部 <b>−/100%/＋/⤢适配</b> 缩放（Ctrl±、Ctrl+0 复位）。<br>
       ・ <b>拍号</b>：顶部左侧可选 <b>4/4 · 3/4 · 2/4 · 6/8 · 5/4 · 7/8 · 12/8</b>；切换会按小节重排现有音符（Ctrl+Z 可撤销），标尺/节拍器/位置显示/WAV 与 MIDI 导出都会自动跟随。<br>
       ・ <b>${icon('music')} 节奏细分（连音）</b>：先用 ${icon('marquee')}/Shift <b>框选整数拍</b>（起点对齐步 0/4/8/12…），再到顶部量化按钮旁选 <b>2/3/4/5/6 连音</b> 并点「${icon('quaver')} 应用细分」——选区里每拍的起音会变成 N 个<b>等长精确时值</b>（各 1/N 拍，2/3/4/5/6 全部无浮点误差），MIDI 导出按真实比例（3 连音 = 160 tick）；选「还原为网格」可回到普通格子（可 Ctrl+Z）。轨道页侧栏「${icon('quaver')} 节奏细分」是同一功能。<br>
@@ -465,6 +479,7 @@ export function showHelp(){
     <div class="helpLine"><kbd>Shift+拖动 / ${icon('marquee')} 选区</kbd><span>框选一段（用于 复制 或 区域量化）</span></div>
     <div class="helpLine"><kbd>Shift+单击亮音</kbd><span>切 重音/普通 力度</span></div>
     <div class="helpLine"><kbd>Alt+单击格子</kbd><span>把该格定为“粘贴起点”</span></div>
+    <div class="helpLine"><kbd>Shift+↑ / Shift+↓</kbd><span>给选中的音符加 ♯ / ♭（再按反方向=还原；框选后按=整段一起改）</span></div>
     <div class="helpLine"><kbd>Ctrl+滚轮 / Ctrl± / Ctrl+0</kbd><span>时间线缩放 / 复位</span></div>
     <div class="helpLine"><kbd>Esc</kbd><span>取消框选 / 关菜单 / 关弹窗</span></div>
     <div class="helpLine"><kbd>Ctrl+S</kbd><span>快速保存</span></div>
@@ -538,7 +553,8 @@ export function bindExtras(){
   });
 }
 
-/* 自注册（STEP 6c 收敛）：sidebar 的删除按钮经 hooks.toolbar 反向调用 */
-hooks.toolbar={delTrack,addTrack,clearAll,humanizeAll,clearSelTrack};
+/* 自注册（STEP 6c 收敛）：sidebar 的删除按钮经 hooks.toolbar 反向调用；
+   setPosStatus 一并挂上，供 timeline.js（升降号回显）反向调用——toolbar 已 import timeline，不能再反向 import */
+hooks.toolbar={delTrack,addTrack,clearAll,humanizeAll,clearSelTrack,setPosStatus};
 /* 载入工程后的统一刷新（io/project 经 hooks.afterLoad 反向调用） */
 export function afterProjectLoad(){ structural(true);buildKeyBar();syncAllUI();renderInspector();relabelRows(); setPosStatus('就绪'); }

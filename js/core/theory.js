@@ -76,3 +76,59 @@ export const ENGINE_DEF={
   organ:{osc:'sine',    cut:2000,res:.4, a:.03, d:.07,s:.42,r:.18, detune:0,  nOsc:1, glide:0}
 };
 export const ROLE_VOL={lead:.92,bass:.85,pad:.45,chord:.26,arp:.7,custom:.85,drum:.8};
+/* =========================================================================
+   3. 升降号（acc）层：t.acc = {[step]:{[row]:-1|0|1}} —— 稀疏对象，0 不落键
+   accOf / setAcc 是本层唯一读写入口；两者只依赖 t，不依赖 proj → 归本文件。
+   注意：音高入口 rowMidi 在 core/state.js（state.js import 本文件，本文件不可反向 import）。
+   ========================================================================= */
+/* 读：无 t.acc / 无该 step / 无该 row / 非法值 → 一律 0（= 无变化） */
+export function accOf(t,step,row){
+  if(!t||!t.acc||step==null||row==null)return 0;
+  const s=t.acc[step];
+  if(!s)return 0;
+  const v=s[row];
+  return (v===1||v===-1)?v:0;
+}
+/* 写：只认 ±1 落键；其余值（0/undefined/NaN…）一律删键；空 step 键一并删除（进一步稀疏化） */
+export function setAcc(t,step,row,v){
+  if(!t||step==null||row==null)return;
+  const a=t.acc||(t.acc={});
+  const s=a[step]||(a[step]={});
+  if(v===1||v===-1)s[row]=v;else delete s[row];
+  if(!Object.keys(s).length)delete a[step];
+}
+/* 兜底清洗：删掉“没有音”的升降号键（孤儿标记）。
+   判据 = 该 (step,row) 上既没有网格音符（t.pat[step][row]>0），也没有落在该步的精确时值音符（prec）；
+   另外 step 越界（<0 或 ≥ steps）、row 越界（≥ 该轨行数）的键同样算孤儿。
+   —— 所有会改 pat 的路径（绘制/擦除、量化、粘贴、细分、拍号、清空、曲长、AI 重写）最后都会走
+      audio/engine.js 的 rebuildEvents()，那里调用本函数即可全局收口；serializeProject 之前再调一次做双保险。
+   steps 省略时取该轨 pat 的列数。返回删掉的键数。 */
+export function pruneAcc(t,steps){
+  if(!t||!t.acc)return 0;
+  const S=(steps!=null&&steps>=0)?steps:(t.pat?t.pat.length:0);
+  const rows=trackRows(t);
+  // “有精确时值音符”的格做成集合（只有真的存在 prec 音符时才建；绝大多数轨是空数组 → 零开销）
+  let precHas=null;
+  if(t.prec&&t.prec.length){
+    precHas=new Set();
+    for(let i=0;i<t.prec.length;i++){
+      const p=t.prec[i];
+      if(p.row!=null&&p.row>=0&&p.row<rows)precHas.add(Math.floor((p.u||0)/PREC_U_PER_STEP)+':'+p.row);
+    }
+  }
+  const drop=[];
+  for(const k in t.acc){
+    const step=+k;
+    const col=t.acc[k];
+    if(!(step>=0&&step<S)){for(const rr in col)drop.push([step,+rr]);continue}
+    const patCol=t.pat?t.pat[step]:null;
+    for(const rr in col){
+      const row=+rr;
+      // 常见情形：记号就在有音符的格上 → 一次查表即通过（不做集合查询、不拼字符串）
+      if(row>=0&&row<rows&&patCol&&patCol[row]>0)continue;
+      if(!precHas||!precHas.has(step+':'+row))drop.push([step,row]);
+    }
+  }
+  for(let i=0;i<drop.length;i++)setAcc(t,drop[i][0],drop[i][1],0);
+  return drop.length;
+}

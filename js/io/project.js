@@ -1,6 +1,6 @@
 /* [project.js] source: Pro.html 2300-2349, 4723-4808（撤销栈 / 序列化 / 存档 / 导入导出 / 快照） */
 import { proj, setProj, newTrack, uid, ensurePatSizes, pruneTrackPrec, meterN, meterD, SPB, MAX_BARS } from '../core/state.js';
-import { PREC_U_PER_STEP, ROLES, ENGINE_DEF } from '../core/theory.js';
+import { PREC_U_PER_STEP, ROLES, ENGINE_DEF, setAcc, pruneAcc } from '../core/theory.js';
 import { toast, downloadBlob, hooks } from '../core/util.js';
 import { LS_KEY } from '../core/storage.js';
 import { Play, stopPlay, rebuildEvents } from '../audio/engine.js';
@@ -64,18 +64,22 @@ export function markDirtyUI(){
 }
 /* ---------- 序列化 ---------- */
 export function serializeProject(){
+  // 双保险：导出/存档/分享链接/撤销快照之前再清一次孤儿升降号键（rebuildEvents 里已收口，这里几乎零成本）
+  try{proj.tracks.forEach(t=>pruneAcc(t,proj.steps))}catch(e){}
   return JSON.stringify({
-    ver:6,name:proj.name,bpm:proj.bpm,swing:proj.swing,steps:proj.steps,spb:proj.spb||16,
+    ver:7,name:proj.name,bpm:proj.bpm,swing:proj.swing,steps:proj.steps,spb:proj.spb||16,
     meterN:meterN(),meterD:meterD(),masterVol:proj.masterVol,
     key:proj.key,mode:proj.mode,keyOct:proj.keyOct,tracks:proj.tracks.map(t=>({
       id:t.id,kind:t.kind,role:t.role,name:t.name,color:t.color,engine:t.engine,osc:t.osc,cut:t.cut,res:t.res,
       env:t.env,detune:t.detune,nOsc:t.nOsc,vol:t.vol,pan:t.pan,reverb:t.reverb,delay:t.delay,
-      mute:t.mute,solo:t.solo,shift:t.shift,collapsed:t.collapsed,rows:t.rows||0,keyOct:t.keyOct||0,pat:t.pat,prec:t.prec||[]
+      mute:t.mute,solo:t.solo,shift:t.shift,collapsed:t.collapsed,rows:t.rows||0,keyOct:t.keyOct||0,pat:t.pat,prec:t.prec||[],
+      ...((t.acc&&Object.keys(t.acc).length)?{acc:t.acc}:{}) // 升降号（稀疏）：真有标记才写这个字段，没标记的轨与旧档形态完全一致
     }))
   });
 }
 export function applyProjectData(data){
   // ver<6 的旧档：prec 的 u 单位是 1/3 步（1 步=3u），现在 1 步=PREC_U_PER_STEP u → 整体 ×(PREC_U_PER_STEP/3)
+  // ver<7 的旧档：没有 acc 字段（= 全自然音）→ 下面按“无标记”读入；ver≥7 才有稀疏 acc
   const legacy=((+data.ver||1)<6)||data.spb===12;
   const kU=legacy?(PREC_U_PER_STEP/3):1;   // 3u→60u 即 ×20
   setProj(data);
@@ -107,6 +111,14 @@ export function applyProjectData(data){
       vel:+p.vel||.8
     })):[];
     t.id=d.id||uid();
+    // 升降号（acc）：稀疏读入并顺手消毒——只收 ±1，0/垃圾值直接丢弃；旧档没有 d.acc = 全自然音
+    t.acc={};
+    if(d.acc&&typeof d.acc==='object'){
+      for(const k in d.acc){
+        const col=d.acc[k];if(!col||typeof col!=='object')continue;
+        for(const rr in col){const v=col[rr];if(v===1||v===-1)setAcc(t,Math.round(+k),Math.round(+rr),v)}
+      }
+    }
     return t;
   });
   if(proj.sel==null)proj.sel=proj.tracks.length?0:-1;

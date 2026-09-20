@@ -117,6 +117,33 @@
 .melRows{padding:4px 0}
 .drumRowH{height:24px}
 
+/* ---- 升降号（acc ♯ / ♭）：格子右上角标记 + 轻度描边 + 焦点格；行标签灰字提示 ---- */
+/* ♯/♭ 画在 ::before（.pc::before 此前无人用；.pc.tribar::after 是节奏细分标记，两者互不干扰） */
+.pc.accUp::before,.pc.accDn::before{content:'';position:absolute;top:0;right:1px;font:700 9px/1.05 var(--mono);
+  pointer-events:none;user-select:none}
+.pc.accUp::before{content:'♯'}
+.pc.accDn::before{content:'♭'}
+.pc.on.accUp::before,.pc.on.accDn::before{color:rgba(0,0,0,.72)}      /* 音符格是亮色轨道色 → 用深字 */
+.pc:not(.on).accUp::before,.pc:not(.on).accDn::before{color:var(--txt);opacity:.45}
+/* 轻度染色：走 inset 描边，不用 background（避免与 .mel .pc.on 的轨道色权重打架） */
+.pc.accUp,.pc.accDn{box-shadow:inset 0 0 0 1px rgba(var(--txt-rgb),.42)}
+.pc.on.accUp,.pc.on.accDn{box-shadow:inset 0 0 0 1px rgba(0,0,0,.4),inset 0 0 10px rgba(0,0,0,.16)}
+/* 焦点格 = 最近点中的那一格（Shift+↑/↓ 的作用目标）；用外环，与 .pc.playCol 的内环不同层 */
+.pc.accFocus{outline:2px solid var(--ring);outline-offset:-2px;z-index:3}
+/* 行标签上的升降提示：基础音名不变，只补一个灰色小记号（该行有音高被升降过） */
+.lab .accHint{color:var(--dim);font-size:8px;font-family:var(--mono)}
+
+/* ---- 右键菜单（升降号的兜底入口）：容器运行时创建，条目复用 layout.css 的 .mi ---- */
+.pcMenu{position:fixed;left:0;top:0;z-index:260;min-width:186px;background:var(--ctl-bg);border:1px solid var(--line2);
+  border-radius:var(--r);padding:6px;box-shadow:var(--shadow-2),var(--glow);display:none;opacity:0;transform:scale(.97);
+  transform-origin:top left;transition:opacity var(--dur-fast) var(--ease-out),transform var(--dur-fast) var(--ease-out)}
+.pcMenu.open{display:block;opacity:1;transform:none}
+@starting-style{.pcMenu.open{opacity:0;transform:scale(.97)}}
+.pcMenuHd{padding:5px 10px 6px;font:600 10px var(--mono);color:var(--dim);letter-spacing:var(--ls-wide);white-space:nowrap}
+.pcMenu .accGly{width:16px;flex:none;text-align:center;font:700 12px var(--mono);color:var(--mut)}
+.pcMenu .mi:hover .accGly{color:var(--txt)}
+.pcMenu .pcSep{height:1px;background:var(--line2);margin:5px 4px}
+
 /* 演奏中的小节光柱由 .playCol 控制 */
 
 /* ---- 窗口适配 / 响应式 ---- */

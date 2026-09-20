@@ -1,7 +1,7 @@
 /* [engine.js] source: Pro.html 1441-1443/1469, 1470-1529, 1531-1533, 1548-1572, 1573-1589, 1604-1620（音序器 + 走带） */
-import { proj, actx, A, stepDurNow, SPB, beatSteps, patRows, rowMidi } from '../core/state.js';
+import { proj, actx, A, stepDurNow, SPB, beatSteps, patRows, rowMidiAt } from '../core/state.js';
 import { clamp, icon, UI } from '../core/util.js';
-import { KIT, PREC_U_PER_STEP, trackRows, freqOf } from '../core/theory.js';
+import { KIT, PREC_U_PER_STEP, trackRows, freqOf, pruneAcc } from '../core/theory.js';
 import { ensureAudio, setGate } from './master.js';
 import { synthVoice, reserveVoices } from './synth.js';
 import { drumVoice, metronomeClick } from './drum.js';
@@ -13,6 +13,7 @@ export function anySolo(){return proj.tracks.some(t=>t.solo)}
 export function rebuildEvents(){
   const S=proj.steps;
   proj._ev=proj.tracks.map(t=>{
+    pruneAcc(t,S); // 兜底收口：清掉没有音的升降号键（所有改 pat 的路径最后都会走到这里）
     const arr=Array.from({length:S},()=>[]);
     if(t.kind==='drum'){
       for(let s=0;s<S;s++){for(let r=0;r<KIT.length;r++){const v=t.pat[s][r];if(v>0)arr[s].push({kit:r,vel:v})}}
@@ -27,7 +28,8 @@ export function rebuildEvents(){
             // 避免“跨多小节粘连成一根巨音”导致听感糊、导出只剩少数长音符
             let len=1;
             while(s+len<S&&(s+len)%SPB()!==0&&t.pat[s+len][r]>0)len++;
-            arr[s].push({row:r,midi:clamp(rowMidi(t,r),12,127),vel:v,len});
+            // midi 按“该步 + 该行”现算：升降号（t.acc）在这一处生效，缓存进 proj._ev
+            arr[s].push({row:r,midi:clamp(rowMidiAt(t,r,s),12,127),vel:v,len});
             s+=len;
           }else s++;
         }
@@ -100,7 +102,7 @@ export function fireStep(step,time,ctx,dest,straightTime){
           const k=KIT[p.row];
           drumVoice(ctx,dest,tWhen,k.id,clamp(p.vel*(0.92+Math.random()*.16),.08,1),base);
         }else{
-          const m=rowMidi(t,p.row);
+          const m=rowMidiAt(t,p.row,step); // 精确时值音符：音高同样计入该步的升降号
           synthVoice(ctx,dest,tWhen,{
             freq:freqOf(m),vel:clamp(p.vel*(0.95+Math.random()*.1),.08,1),
             durSec:Math.max(.08,(p.durU||PREC_U_PER_STEP)*(dur/PREC_U_PER_STEP)), // 精确时值（1/3 拍 = 80u）

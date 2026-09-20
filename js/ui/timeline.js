@@ -1,13 +1,13 @@
 /* [timeline.js] source: Pro.html 1679-2134, 2135-2142, 2148-2299, 2827-2912, 3230-3396, 3423-3428, 4721-4722
    （时间线渲染/缓存/画格/选区/节奏细分/量化/缩放；find 见 STEP 0 计划） */
-import { proj, uiZoom, setUiZoom, uiTab, selTrack, stepsPerQuarter, stepsPerBeat, meterN, meterD, SPB, beatSteps, stepWidth, effStepWidth, ensurePatSizes, pruneTrackPrec, patRows, allocPat, rowMidi, actx, A, MAX_BARS, ZOOM_MIN, CELL_MIN_PX, FIT_MIN_LONG } from '../core/state.js';
-import { KIT, MEL_ROWS, NOTE_NAMES, ROLES, noteNameOf, trackRows, octRowsOf, PREC_U_PER_STEP } from '../core/theory.js';
+import { proj, uiZoom, setUiZoom, uiTab, selTrack, stepsPerQuarter, stepsPerBeat, meterN, meterD, SPB, beatSteps, stepWidth, effStepWidth, ensurePatSizes, pruneTrackPrec, patRows, allocPat, rowMidi, rowMidiAt, actx, A, MAX_BARS, ZOOM_MIN, CELL_MIN_PX, FIT_MIN_LONG } from '../core/state.js';
+import { KIT, MEL_ROWS, NOTE_NAMES, ROLES, noteNameOf, trackRows, octRowsOf, PREC_U_PER_STEP, accOf, setAcc } from '../core/theory.js';
 import { $, $$, el, clamp, toast, icon, debounce, UI, hooks } from '../core/util.js';
 import { KIT_COLORS, drumVoice } from '../audio/drum.js';
 import { auditionTrack } from '../audio/synth.js';
 import { ensureAudio, setGate } from '../audio/master.js';
 import { Play, rebuildEvents } from '../audio/engine.js';
-import { beginEdit, commitEdit, markDirtyUI } from '../io/project.js';
+import { beginEdit, commitEdit, markDirtyUI, doUndo, undoH } from '../io/project.js';
 
 /* 把池内一个格子从步 so 挪到步 sn：同步 cols/cells 索引（O(1)，避免整体重建） */
 function reindexMove(c,ti,r,cell,so,sn){
@@ -251,6 +251,10 @@ function stepClass(s){return s%SPB()===0?' bar':(s%beatSteps()===0?' beat':'')}
 function glowStepNow(){ // 当前“已点亮”的播放列（未点亮返回 -1）
   try{const g=hooks.seek?.glowCol?.();return (g==null?-1:g)}catch(e){return -1}
 }
+/* 焦点格（升降号的作用目标）：{ti,r,s}；高亮的那颗 DOM 格也记在这里，
+   供虚拟滚动把格子复用给别的步之后自愈（applyCell 每次都会按坐标校正） */
+export let accFocus=null;
+let accFocusCell=null;
 /* 一个格子的全部可视状态（增量：步号没变且标记未置位时不做任何 DOM 写入） */
 function applyCell(cell,ti,r,s){
   const t=proj.tracks[ti];if(!t||!cell)return;
@@ -264,8 +268,16 @@ function applyCell(cell,ti,r,s){
   if(cell.classList.contains('beat')!==beat)cell.classList.toggle('beat',beat);
   const inSel=!!(regionSel&&regionSel.ti===ti&&s>=regionSel.from&&s<=regionSel.to);
   if(cell.classList.contains('sel')!==inSel)cell.classList.toggle('sel',inSel);
+  // 升降号（acc）：格子右上角 ♯/♭ 标记（图形由 css/timeline.css 的 .pc::before 画）
+  const av=t.kind==='mel'?accOf(t,s,r):0;
+  const aUp=av===1,aDn=av===-1;
+  if(cell.classList.contains('accUp')!==aUp)cell.classList.toggle('accUp',aUp);
+  if(cell.classList.contains('accDn')!==aDn)cell.classList.toggle('accDn',aDn);
   const lit=glowStepNow()===s;
   if(cell.classList.contains('playCol')!==lit)cell.classList.toggle('playCol',lit);
+  // 焦点格高亮：窗口滑动会把格子复用给别的步，这里按坐标自愈（避免留下错位的焦点框）
+  const isFoc=!!(accFocus&&accFocus.ti===ti&&accFocus.r===r&&accFocus.s===s);
+  if(cell.classList.contains('accFocus')!==isFoc)cell.classList.toggle('accFocus',isFoc);
 }
 function tagCell(cell,ti,r,s){
   if(cell._s===s&&cell._ti===ti&&cell._r===r)return;
@@ -355,6 +367,7 @@ export function zoomFitWindow(){
 /* 重新渲染整个时间线结构 */
 export function structural(full){
   ensurePatSizes();
+  try{closeAccMenu();clearAccFocus()}catch(e){} // 整片重建会换掉所有格子 DOM：浮层菜单与焦点框一并收回
   const S=proj.steps, cw=effStepWidth();
   const inner=$('#tlInner');
   inner.style.setProperty('--cw',cw+'px');
@@ -536,6 +549,8 @@ export function setTrackWidth(oct){
   t.rows=nr;
   ensurePatSizes();
   if(t.prec&&t.prec.length)t.prec=t.prec.filter(p=>p.row<nr);
+  // 超出新行数的升降号标记一并清掉（音符已经不存在了，留着就是孤儿键）
+  if(t.acc)for(const k in t.acc)for(const rr in t.acc[k])if(+rr>=nr)setAcc(t,+k,+rr,0);
   commitEdit();
   structural(true);rebuildEvents();markDirtyUI();
   if(proj.sel===proj.tracks.indexOf(t))hooks.inspector?.render?.();
@@ -586,6 +601,10 @@ export function paintOne(ti,r,s){
   const v=t.pat[s]&&t.pat[s][r]||0;
   cell.classList.toggle('on',v>0);
   cell.classList.toggle('velH',v>=.85);
+  // 升降号标记（与 applyCell 同一口径，保证单格增量重绘也同步）
+  const av=t.kind==='mel'?accOf(t,s,r):0;
+  cell.classList.toggle('accUp',av===1);
+  cell.classList.toggle('accDn',av===-1);
 }
 export function paintAll(){
   const rng=winRange();
@@ -612,16 +631,42 @@ export function refreshRhythmMarkers(){
     markRhythmUI();
   }catch(e){}
 }
+/* 某一行在本轨里“真的用到的”升降号提示（只统计仍有音符的格）：'' | '♯' | '♭' | '♯♭'
+   —— 行标签保持基础音级名（一行是很多格，混用时写任何单一音名都会误导），
+      用灰色小记号告诉用户“这一行有升降”，具体哪个格由格子右上角的 ♯/♭ 表示。 */
+function accHintOf(t,r){
+  if(!t.acc)return '';
+  let up=false,dn=false;
+  for(const k in t.acc){
+    const col=t.pat[k];
+    if(!col||!(col[r]>0))continue; // 音符已被擦掉的格不算
+    const v=t.acc[k][r];
+    if(v===1)up=true;else if(v===-1)dn=true;
+  }
+  return up&&dn?'♯♭':(up?'♯':(dn?'♭':''));
+}
+/* 单行标签刷新（relabelRows 与 acc 变更共用同一套写法） */
+function labelOneRow(ti,r,lb){
+  const t=proj.tracks[ti];
+  if(!t||t.kind!=='mel'||!lb)return;
+  lb.className='lab'+(r%7===0?' root':'');
+  lb.textContent=noteNameOf(rowMidi(t,r));
+  const hint=accHintOf(t,r);
+  if(hint)lb.appendChild(el('span','accHint',hint));
+}
+/* 只重标某轨的若干行（升降号变化后，避免整轨重标） */
+function relabelRowsAt(ti,rows){
+  const g=$$('#trackList .tgroup')[ti];if(!g)return;
+  const labs=g.querySelectorAll('.row .lab');
+  rows.forEach(r=>labelOneRow(ti,r,labs[r]));
+}
 /* 重新标注琴键行（调式变化后）*/
 export function relabelRows(){
   const groups=$$('#trackList .tgroup');
   groups.forEach((g,ti)=>{
-    const t=proj.tracks[ti];if(t.kind!=='mel')return;
+    const t=proj.tracks[ti];if(!t||t.kind!=='mel')return;
     const labs=g.querySelectorAll('.row .lab');
-    labs.forEach((lb,r)=>{
-      lb.className='lab'+(r%7===0?' root':'');
-      lb.textContent=noteNameOf(rowMidi(t,r));
-    });
+    labs.forEach((lb,r)=>labelOneRow(ti,r,lb));
   });
   markDirtyUI();
 }
@@ -750,6 +795,13 @@ export function copyRegion(){
     for(let r=0;r<rows;r++)col[r]=(t.pat[s]&&t.pat[s][r])||0;
     cells.push(col);
   }
+  // 升降号与 cells 同形状一起进剪贴板（0 = 该格没标记）
+  const accs=[];
+  for(let s=lo;s<=hi;s++){
+    const ac=new Array(rows);
+    for(let r=0;r<rows;r++)ac[r]=accOf(t,s,r);
+    accs.push(ac);
+  }
   // 连精确时值音符一起复制（转换成选区相对位置）
   const precs=[];
   if((t.kind==='mel'||t.kind==='drum')&&t.prec&&t.prec.length){
@@ -761,7 +813,7 @@ export function copyRegion(){
       }
     });
   }
-  clip.cells=cells;clip.prec=precs;clip.len=hi-lo+1;clip.kind=t.kind;clip.srcTi=regionSel.ti;
+  clip.cells=cells;clip.acc=accs;clip.prec=precs;clip.len=hi-lo+1;clip.kind=t.kind;clip.srcTi=regionSel.ti;
   const barsTxt=clip.len>=SPB()?(clip.len/SPB())+' 小节':clip.len+' 步';
   toast('已复制「'+(t.name||'音轨')+'」的 '+barsTxt+'（'+clip.len+' 步'+(precs.length?' · 含 '+precs.length+' 个细分音':'')+'）→ 把播放头移到目标处，或按住 Alt 点目标轨的起始格，再 粘贴 / Ctrl+V','ok','copy');
   clearRegionUI(); // 复制后清掉源选区，粘贴默认落到播放头
@@ -800,6 +852,19 @@ export function pasteRegion(){
       if((t.pat[s]&&t.pat[s][r])!==v){t.pat[s][r]=v;wrote++}
     }
   });
+  // 升降号跟着一起贴（与 pat 同一范围：行数取目标轨的、越界的行/格直接丢弃）
+  if(clip.acc){
+    clip.acc.forEach((ac,k)=>{
+      const s=at+k;
+      if(s<0||s>=proj.steps)return;
+      const lim=Math.min(rows,ac.length);
+      for(let r=0;r<lim;r++){
+        const v=ac[r]||0;
+        if(!v&&!accOf(t,s,r))continue; // 源无标记且目标本来也没标记 → 不必写
+        setAcc(t,s,r,v);               // 目标格以“贴过来的值”为准（0 = 清掉旧标记）
+      }
+    });
+  }
   // 把剪贴板里的精确时值音符按目标位置一起贴上
   if(clip.prec&&clip.prec.length&&(t.kind==='mel'||t.kind==='drum')){
     const rowsL=patRows(t),base=at*PREC_U_PER_STEP;
@@ -875,6 +940,7 @@ export function convertRegionRhythm(n){
       if(p.row==null||p.row<0||p.row>=patRows(trk))return;
       const s=clamp(Math.round((p.u||0)/U),from,to);
       if(trk.pat[s])trk.pat[s][p.row]=clamp(p.vel==null?.8:p.vel,.05,1);
+      moveAcc(trk,Math.floor((p.u||0)/U),s,p.row); // 还原成网格：标记跟着落到目标格，原格清空
       const b=from+Math.floor((s-from)/4)*4;
       if(!seen[b]){seen[b]=1;changed++}
     });
@@ -900,20 +966,26 @@ export function convertRegionRhythm(n){
       const bU=b*U,bE=bU+per;
       const pn=old.filter(p=>{const u=p.u||0;return u>=bU&&u<bE}); // 本拍内原有（已被摘掉）的精确音符
       const src=[];
-      beatOnsets(trk,b).forEach(o=>src.push({row:o.row,vel:o.vel,sU:o.step*U,eU:runEndRow(trk,o.row,o.step)*U,grid:true,step:o.step}));
-      pn.forEach(p=>src.push({row:p.row,vel:p.vel,sU:p.u||0,eU:(p.u||0)+(p.durU||U)}));
+      // acc：来源音各自带上自己那一格的升降号（网格音取它所在的格，精确音取 floor(u/60) 那一格）
+      beatOnsets(trk,b).forEach(o=>src.push({row:o.row,vel:o.vel,sU:o.step*U,eU:runEndRow(trk,o.row,o.step)*U,grid:true,step:o.step,acc:accOf(trk,o.step,o.row)}));
+      pn.forEach(p=>src.push({row:p.row,vel:p.vel,sU:p.u||0,eU:(p.u||0)+(p.durU||U),acc:accOf(trk,Math.floor((p.u||0)/U),p.row)}));
       if(!src.length)continue;                       // 空拍：不算“跳过”
       src.sort((a,c)=>a.sU-c.sU||a.row-c.row);
       const use=pickSource(src,bE);
       if(!use){pn.forEach(p=>trk.prec.push(p));skipped++;continue} // 转不了就原样放回，不丢音
-      src.forEach(o=>{if(o.grid){const e=Math.round(o.eU/U);for(let s=o.step;s<e;s++)if(trk.pat[s])trk.pat[s][o.row]=0}});
+      src.forEach(o=>{if(o.grid){const e=Math.round(o.eU/U);for(let s=o.step;s<e;s++){if(trk.pat[s])trk.pat[s][o.row]=0;dropAccAt(trk,s,o.row)}}}); // 网格音被摘掉 → 标记一起摘
       // N 个来源音 → 一一对应；只有 1 个来源音（含合并后的）→ 同音 N 等分
-      const emit=(use.length===n)?use:Array.from({length:n},()=>({row:use[0].row,vel:use[0].vel}));
-      emit.forEach((o,i)=>{trk.prec.push({row:o.row,u:bU+i*part,durU:part,vel:o.vel})});
+      const emit=(use.length===n)?use:Array.from({length:n},()=>({row:use[0].row,vel:use[0].vel,acc:use[0].acc}));
+      emit.forEach((o,i)=>{
+        trk.prec.push({row:o.row,u:bU+i*part,durU:part,vel:o.vel});
+        // 标记跟到“该精确音符所在的格”（fireStep 正是按 floor(p.u/60) 这一步去取偏移）
+        setAcc(trk,Math.floor((bU+i*part)/U),o.row,o.acc||0);
+      });
       changed++;
     }
   }else{
     // 鼓：同一拍内某一行恰好 N 个点（网格点 + 已细分的精确音符）→ 改成 N 等分；其余行/拍不动
+    // （鼓组按音色行发声、没有音高 → 不存在 acc，也就没有需要搬运的标记）
     for(let b=from;b<=to;b+=4){
       const bU=b*U,bE=bU+per;
       const pn=old.filter(p=>{const u=p.u||0;return u>=bU&&u<bE});
@@ -977,13 +1049,17 @@ export function setCellVal(ti,r,s,val,noPaint){
   const t=proj.tracks[ti];if(!t)return;
   if(!t.pat[s])return;
   trimPrecAt(ti,r,s); // 手改该格 → 清掉同格的精确音符
-  t.pat[s][r]=clamp(val,0,1);
+  const nv=clamp(val,0,1);
+  t.pat[s][r]=nv;
+  if(!(nv>0))setAcc(t,s,r,0); // 擦除音符时一并清掉该格的升降号，避免留下“没有音符的孤儿 acc”
   if(!noPaint)paintOne(ti,r,s);
   rebuildSoon();
 }
 export function cellPaintStart(ev){
   const pc=ev.target.closest('.pc');if(!pc)return;
   const ti=+pc.dataset.ti,s=+pc.dataset.s;
+  setAccFocus(ti,+pc.dataset.r,s); // 任何一次点中（左/右键）都记下“焦点格”：Shift+↑/↓ 以它为目标
+  if(ev.button===2)return;         // 右键：不再直接擦除，改由右键菜单统一入口（见 openAccMenu 的「擦除音符」）
   if(ev.altKey){ // Alt+单击 = 给“粘贴”定位一个起点（不画画）
     ev.preventDefault();
     beginRegionSel(ti,s);
@@ -1007,11 +1083,6 @@ export function cellPaintStart(ev){
   const r=+pc.dataset.r;
   const t=proj.tracks[ti];
   const cur=t.pat[s]?t.pat[s][r]:0;
-  if(ev.button===2){ // 右键擦除
-    setCellVal(ti,r,s,0);
-    commitEdit();
-    return;
-  }
   ev.preventDefault();
   paint.on=true;
   if(drawTool==='erase'){
@@ -1067,6 +1138,219 @@ export function cellPaintEnd(){
   if(paint.on){paint.on=false;rebuildEvents();try{refreshRhythmMarkers()}catch(e){}}
   commitEdit();
 }
+/* =========================================================================
+   升降号（acc：♯ / ♭ / ♮）—— 焦点格 与 框选 两种作用范围，统一入口 applyAcc()
+   · 数据：t.acc = {[step]:{[row]:-1|0|1}}（稀疏；读写一律走 theory.js 的 accOf / setAcc）
+   · 音高：state.js 的 rowMidiAt(t,r,step) = rowMidi(t,r) + accOf()；播放/导出侧的现算见 audio/engine.js
+   · 触发：Shift+↑/↓ 为主，右键菜单兜底；只新增 class，不改任何既有 id/class
+   ========================================================================= */
+function clearAccFocus(){
+  if(accFocusCell)accFocusCell.classList.remove('accFocus');
+  accFocusCell=null;accFocus=null;
+}
+function setAccFocus(ti,r,s){
+  if(accFocus&&accFocus.ti===ti&&accFocus.r===r&&accFocus.s===s)return;
+  if(accFocusCell)accFocusCell.classList.remove('accFocus');
+  accFocusCell=null;accFocus={ti,r,s};
+  const c=proj._uiCache&&proj._uiCache.cells?proj._uiCache.cells[ti]:null;
+  const cell=(c&&c[r])?c[r][s]:null;
+  if(cell){cell.classList.add('accFocus');accFocusCell=cell}
+}
+/* 供自检脚本（_v7_acc_check.mjs）与将来的键盘光标导航设定焦点格：与鼠标点击同一条路径 */
+export function setAccFocusAt(ti,r,s){setAccFocus(ti,r,s)}
+/* 作用范围：有选区 → 选区步区间内该轨所有“有音符”的格；否则 → 焦点格（必须本身是音符） */
+function accScope(){
+  const selT=(regionSel&&regionSel.ti>=0)?proj.tracks[regionSel.ti]:null;
+  if(selT){
+    if(selT.kind!=='mel')return {err:'drum'};
+    const list=[];
+    for(let s=regionSel.from;s<=regionSel.to;s++){
+      const col=selT.pat[s];if(!col)continue;
+      for(let r=0;r<col.length;r++)if(col[r]>0)list.push({ti:regionSel.ti,r,s});
+    }
+    return {list,scope:'sel'};
+  }
+  const f=accFocus,t=f?proj.tracks[f.ti]:null;
+  if(f&&t&&t.kind!=='mel')return {err:'drum'};
+  if(f&&t&&t.pat[f.s]&&t.pat[f.s][f.r]>0)return {list:[{ti:f.ti,r:f.r,s:f.s}],scope:'cell'};
+  return {list:[],scope:'none'};
+}
+export function accTargetCount(){const s=accScope();return s.list?s.list.length:0}
+function paintAccCell(ti,r,s){
+  const c=proj._uiCache&&proj._uiCache.cells?proj._uiCache.cells[ti]:null;
+  const cell=(c&&c[r])?c[r][s]:null;
+  if(cell)applyCell(cell,ti,r,s);
+}
+function refocusAccCell(){
+  const f=accFocus;if(!f)return;
+  const c=proj._uiCache&&proj._uiCache.cells?proj._uiCache.cells[f.ti]:null;
+  const cell=(c&&c[f.r])?c[f.r][f.s]:null;
+  if(!cell)return;
+  try{cell.setAttribute('tabindex','-1');cell.focus({preventScroll:true})}catch(e){}
+}
+/* 统一入口。dir：1=升 0=还原 -1=降；mode：'toggle'=键盘单格（反号归零）/ 'set'=选区·菜单（幂等设值） */
+export function applyAcc(dir,mode){
+  const sc=accScope();
+  if(sc.err==='drum'){toast('鼓组轨没有音高，不支持升降号','err','drum');return false}
+  const list=sc.list||[];
+  if(!list.length){toast('先点一下音符格（或框选一段），再按 Shift+↑ / Shift+↓ 加升降号','err','music');return false}
+  const single=(sc.scope==='cell');
+  const rowsByTi={};
+  beginEdit();
+  list.forEach(({ti,r,s})=>{
+    const t=proj.tracks[ti];if(!t)return;
+    const cur=accOf(t,s,r);
+    let v=dir;
+    if(mode==='toggle'&&single&&cur===-dir)v=0; // 键盘单格：反号 → 归零；同号/无号 → 设为 dir
+    if(cur!==v)setAcc(t,s,r,v);
+    (rowsByTi[ti]||(rowsByTi[ti]=[])).push(r);
+    paintAccCell(ti,r,s);
+  });
+  Object.keys(rowsByTi).forEach(k=>relabelRowsAt(+k,Array.from(new Set(rowsByTi[k]))));
+  if(single&&list.length===1){ // 单格改完立刻试听新音高：听得见才算真的改对了
+    const p=list[0],t=proj.tracks[p.ti];
+    try{auditionTrack(t,rowMidiAt(t,p.r,p.s),.9)}catch(e){}
+  }
+  rebuildEvents(); // proj._ev 是按“每格现算后缓存”生成的 → acc 变了必须重建，否则听到的还是旧音高
+  markDirtyUI();
+  commitEdit();
+  const what=dir===1?'♯ 升半音':(dir===-1?'♭ 降半音':'♮ 还原');
+  try{hooks.toolbar?.setPosStatus?.(what+' · '+list.length+(sc.scope==='sel'?' 格（选区）':' 格'),1600)}catch(e){}
+  return true;
+}
+/* ---------- 升降号“跟着音符走”的两个小工具（量化 / 细分 / 复制粘贴共用同一套语义） ----------
+   · moveAcc：音符从 src 步搬到 dst 步时，把它那一格的标记一起搬；源格一律清空（不留孤儿键），
+     目标格以“搬来的值”为准——搬来的值可能是 0（本来没标记），此时目标格的旧标记也会被清掉。
+   · dropAccAt：音符被删除（量化去重、擦除等）时清掉该格标记。
+   两者都只对旋律轨生效（鼓组没有音高，也就没有升降号）。 */
+function moveAcc(t,srcStep,dstStep,r){
+  if(!t||t.kind!=='mel')return;
+  const v=accOf(t,srcStep,r);
+  if(!v&&!accOf(t,dstStep,r))return; // 两端都没有标记 → 一次写入都不做
+  setAcc(t,srcStep,r,0);
+  setAcc(t,dstStep,r,v);
+}
+/* 整段（音符可能横跨多格）一起搬：先快照源区间、清空源区间，再写目标区间。
+   必须先快照——源与目标区间可能重叠（量化只挪一两格），边搬边读会串值。 */
+function moveAccRun(t,srcStart,dstStart,len,r){
+  if(!t||t.kind!=='mel')return;
+  const vals=[];let any=false;
+  for(let i=0;i<len;i++){const v=accOf(t,srcStart+i,r);vals.push(v);if(v)any=true}
+  if(!any){
+    let dstHas=false;
+    for(let i=0;i<len;i++)if(accOf(t,dstStart+i,r)){dstHas=true;break}
+    if(!dstHas)return; // 源无标记、目标也无旧标记 → 无事可做
+  }
+  for(let i=0;i<len;i++)setAcc(t,srcStart+i,r,0);
+  for(let i=0;i<len;i++)setAcc(t,dstStart+i,r,vals[i]);
+}
+function dropAccAt(t,step,r){
+  if(t&&t.kind==='mel'&&accOf(t,step,r))setAcc(t,step,r,0);
+}
+/* ---------- 右键菜单（兜底入口；运行时创建，条目复用既有 .mi 样式） ---------- */
+let accMenu=null;
+function accMenuOpen(){return !!(accMenu&&accMenu.classList.contains('open'))}
+export function closeAccMenu(){ if(accMenuOpen())accMenu.classList.remove('open') }
+function ensureAccMenu(){
+  if(accMenu)return accMenu;
+  const m=el('div','pcMenu');
+  m.setAttribute('role','menu');
+  m.setAttribute('aria-label','升降号 / 音符操作');
+  m.addEventListener('click',e=>e.stopPropagation()); // 点菜单内部不算“点别处”，不收起
+  m.addEventListener('keydown',e=>{
+    const items=$$('.pcMenu .mi');
+    const i=items.indexOf(document.activeElement);
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+      e.preventDefault();
+      const n=(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;
+      if(items[n])items[n].focus();
+    }else if(e.key==='Home'){e.preventDefault();if(items[0])items[0].focus()}
+    else if(e.key==='End'){e.preventDefault();if(items.length)items[items.length-1].focus()}
+    else if(e.key==='Escape'){e.preventDefault();closeAccMenu();refocusAccCell()}
+  });
+  document.body.appendChild(m);
+  document.addEventListener('click',()=>closeAccMenu()); // 点别处收起
+  document.addEventListener('scroll',()=>closeAccMenu(),true); // 滚动收起（滚动后光标位置会失真）
+  accMenu=m;
+  return m;
+}
+/* 每次打开都重建条目：作用范围提示（单格/选区）要跟着当前状态变 */
+function buildAccMenu(m){
+  const sc=accScope();
+  const list=sc.list||[];
+  const f=accFocus;
+  const where=(sc.scope==='sel')?('选区 · '+list.length+' 个音符')
+    :((f&&proj.tracks[f.ti])?'单格 · 行'+(f.r+1)+' 第'+(f.s+1)+'步':'未选中音符格');
+  m.innerHTML='';
+  m.appendChild(el('div','pcMenuHd',where));
+  const item=(glyph,txt,key,fn)=>{
+    const b=el('button','mi','');
+    b.type='button';b.setAttribute('role','menuitem');
+    b.innerHTML='<span class="accGly">'+glyph+'</span><span class="accTxt">'+txt+'</span>'+(key?'<small>'+key+'</small>':'');
+    b.addEventListener('click',e=>{
+      e.stopPropagation();
+      closeAccMenu();
+      if(fn())refocusAccCell();
+    });
+    return b;
+  };
+  m.appendChild(item('♯','升半音','Shift + ↑',()=>applyAcc(1,'set')));
+  m.appendChild(item('♭','降半音','Shift + ↓',()=>applyAcc(-1,'set')));
+  m.appendChild(item('♮','还原','',()=>applyAcc(0,'set')));
+  m.appendChild(el('div','pcSep',''));
+  m.appendChild(item('✕','擦除音符','Ctrl + Z 可撤销',()=>{
+    const s2=accScope(),lt=s2.list||[];
+    if(!lt.length){toast('先点一下音符格（或框选一段）','err','music');return false}
+    const rowsByTi={};
+    beginEdit();
+    lt.forEach(({ti,r,s})=>{
+      setCellVal(ti,r,s,0); // 擦除会同时清掉该格的 acc（见 setCellVal）
+      (rowsByTi[ti]||(rowsByTi[ti]=[])).push(r);
+    });
+    Object.keys(rowsByTi).forEach(k=>relabelRowsAt(+k,Array.from(new Set(rowsByTi[k]))));
+    rebuildEvents();markDirtyUI();commitEdit();
+    try{hooks.toolbar?.setPosStatus?.('✕ 已擦除 '+lt.length+' 个音符',1600)}catch(e){}
+    return true;
+  }));
+  m.appendChild(item('↩','撤销','Ctrl + Z',()=>{
+    if(!undoH.stack.length){toast('没有可撤销的操作');return false}
+    doUndo();return true;
+  }));
+  // 键盘无障碍：菜单项是原生 <button>，Tab 可达、回车/空格可用
+  m.querySelectorAll('.mi').forEach(b=>b.setAttribute('aria-label',b.textContent.trim()));
+}
+function openAccMenu(x,y){
+  const m=ensureAccMenu();
+  buildAccMenu(m);
+  m.classList.add('open');
+  const w=m.offsetWidth||190,h=m.offsetHeight||190;
+  m.style.left=Math.max(6,Math.min(x,innerWidth-w-6))+'px';
+  m.style.top=Math.max(6,Math.min(y,innerHeight-h-6))+'px';
+  const first=m.querySelector('.mi');
+  if(first)first.focus(); // 键盘：打开即把焦点送进菜单第一项
+}
+/* 右键 .pc：先记焦点，再开菜单（原生菜单已由 toolbar.js 拦掉，这里再拦一次，顺序无关） */
+document.addEventListener('contextmenu',e=>{
+  const pc=(e.target&&e.target.closest)?e.target.closest('.pc'):null;
+  if(!pc)return;
+  e.preventDefault();
+  setAccFocus(+pc.dataset.ti,+pc.dataset.r,+pc.dataset.s);
+  openAccMenu(e.clientX,e.clientY);
+});
+/* Shift+↑ / Shift+↓：加 / 降半音（输入框、下拉、可编辑区、弹窗里一律让给原生行为） */
+document.addEventListener('keydown',e=>{
+  if(e.key!=='ArrowUp'&&e.key!=='ArrowDown')return;
+  if(!e.shiftKey||e.ctrlKey||e.metaKey||e.altKey)return;
+  const tg=e.target,tag=((tg&&tg.tagName)||'').toLowerCase();
+  if(tag==='input'||tag==='select'||tag==='textarea')return;
+  if(tg&&tg.isContentEditable)return;
+  if(document.querySelector('.modal-overlay'))return; // 教程/弹窗打开时不抢键
+  if(accMenuOpen())return;                            // 菜单打开时 ↑/↓ 是选项导航
+  const inTl=!!(tg&&tg.closest&&tg.closest('#timeline'));
+  if(!inTl&&!accFocus&&!(regionSel&&regionSel.ti>=0))return; // 不在时间线语境里 → 不抢
+  e.preventDefault();
+  applyAcc(e.key==='ArrowUp'?1:-1,'toggle');
+});
 /* ---------- 量化：把音符吸附到 1/16 · 1/8 · 1/4 网格（保留力度）
    支持“区域量化”：先用选区工具（或按住 Shift 拖选）框选一段，再点吸附 就只量化这段；
    没有选区则量化整首。量化前实时预估，量化后把被移动的音符闪绿提示。---------- */
@@ -1200,9 +1484,11 @@ export function applyQuantize(){
                   const vals=[];for(let i=0;i<len;i++)vals.push(t.pat[runStart+i][r]);
                   for(let i=0;i<len;i++)t.pat[runStart+i][r]=0;
                   for(let i=0;i<len;i++)t.pat[ns2+i][r]=vals[i];
+                  moveAccRun(t,runStart,ns2,len,r); // 升降号跟着整段一起搬（源格清空、目标格以搬来的值为准）
                   moved++;movedCells.push({ti,r,s:ns2});s=ns2;
                 }else{ // 目标已被同音占住 → 标准“去重”：移除这段重复离格音（可撤销）
                   for(let i=0;i<len;i++)t.pat[runStart+i][r]=0;
+                  for(let i=0;i<len;i++)dropAccAt(t,runStart+i,r); // 音符没了 → 标记也不留
                   merged++;movedCells.push({ti,r,s:runStart,rm:true});
                 }
               }
@@ -1218,9 +1504,9 @@ export function applyQuantize(){
         const ns=snap(s);
         if(ns===s)continue;
         if(!(t.pat[ns]&&t.pat[ns][r])){ // 目标空位 → 移动
-          t.pat[s][r]=0;t.pat[ns][r]=v;moved++;movedCells.push({ti,r,s:ns});
+          t.pat[s][r]=0;t.pat[ns][r]=v;moveAcc(t,s,ns,r);moved++;movedCells.push({ti,r,s:ns});
         }else{ // 与网格上同音重复 → 去掉这颗离格音
-          t.pat[s][r]=0;merged++;movedCells.push({ti,r,s,rm:true});
+          t.pat[s][r]=0;dropAccAt(t,s,r);merged++;movedCells.push({ti,r,s,rm:true});
         }
       }
     }
