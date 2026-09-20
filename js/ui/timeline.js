@@ -675,17 +675,63 @@ export const paint={on:false,erase:false};
 export let drawTool='paint'; // 'paint' | 'erase' | 'select'
 export function setDrawTool(v){drawTool=v}
 let shiftSel=null; // Shift 框选：{ti,r,s,cur,done} —— 任何工具下按住 Shift 拖 = 框选
+/* “单击 vs 拖动”的阈值判定（选区工具 / Shift 框选共用）：
+   按下时记下坐标，移动累计位移 ≥ max(3px, 半格宽) 才算“真的在拖”。
+   没有这道门槛时，128 小节缩到每格 4~8px，手抖十几像素就会被判成“拖了 3~4 格”，
+   单击本想选一列却变成选一大片。绘图（画/擦）不受此门槛影响，仍是按下即生效。 */
+let selDownX=0,selDownY=0,selDragArmed=false;
+function passedDragThreshold(ev){
+  const cw=effStepWidth()||CELL_MIN_PX;
+  const lim=Math.max(3,cw*0.5);
+  return Math.abs((ev.clientX||0)-selDownX)+Math.abs((ev.clientY||0)-selDownY)>=lim;
+}
 /* ---------- 区域复制 / 粘贴 ---------- */
 export let regionSel=null; // {ti, from, to} —— from<=to（含两端），仅 UI 高亮
 export const clip={cells:null,prec:null,len:0,kind:null,srcTi:-1}; // 内部剪贴板
+/* 选区竖带（“一段范围”的视觉主体，见 css/layout.css 的 .tgBody::before）：
+   把 --selFrom/--selN 写到该轨的 .tgBody 上；超出当前渲染窗口的部分裁掉，并隐藏那一侧的边线
+   （否则横向滚动时会在屏幕中间看到一条假的边界线）。逐格 .sel 只负责浅黄底色，逻辑完全不变。 */
+function selBandFor(ti){
+  const g=$$('#trackList .tgroup')[ti];
+  return g?g.querySelector('.tgBody'):null;
+}
+function clearSelBand(ti){
+  const b=selBandFor(ti);if(!b)return;
+  b.classList.remove('selOn','selCutL','selCutR');
+}
+function paintSelBand(sel){
+  if(!sel||sel.ti<0)return;
+  const b=selBandFor(sel.ti);if(!b)return;
+  // 单步选区（一列）不画“范围”竖带：一列本身没有左右范围可言，只留格子的浅黄底最干净，
+  // 也避免单击选中一列时看上去像框住了一大片（竖带只在真的框了多步时才出现）。
+  if(sel.to-sel.from+1<2){b.classList.remove('selOn','selCutL','selCutR');return}
+  const c=proj._uiCache,win=(c&&c.win)?c.win:null;
+  let lo=sel.from,hi=sel.to,cutL=false,cutR=false;
+  if(win){
+    cutL=sel.from<win.from;
+    cutR=sel.to>win.from+win.n-1;
+    lo=Math.max(sel.from,win.from);
+    hi=Math.min(sel.to,win.from+win.n-1);
+  }
+  if(hi<lo){b.classList.remove('selOn','selCutL','selCutR');return} // 整段都在窗口外 → 不画
+  b.style.setProperty('--selFrom',String(lo));
+  b.style.setProperty('--selN',String(hi-lo+1));
+  b.classList.toggle('selCutL',cutL);
+  b.classList.toggle('selCutR',cutR);
+  b.classList.add('selOn');
+}
 export function addSelHighlight(sel){
-  if(!sel||!proj._uiCache||!proj._uiCache.cols)return;
+  if(!sel)return;
+  try{paintSelBand(sel)}catch(e){}
+  if(!proj._uiCache||!proj._uiCache.cols)return;
   const arrs=proj._uiCache.cols[sel.ti];
   if(!arrs)return;
   for(let s=sel.from;s<=sel.to;s++){const arr=arrs[s];if(arr)arr.forEach(c=>c.classList.add('sel'))}
 }
 export function removeSelHighlight(sel){
-  if(!sel||!proj._uiCache||!proj._uiCache.cols)return;
+  if(!sel)return;
+  try{clearSelBand(sel.ti)}catch(e){}
+  if(!proj._uiCache||!proj._uiCache.cols)return;
   const arrs=proj._uiCache.cols[sel.ti];
   if(!arrs)return;
   for(let s=sel.from;s<=sel.to;s++){const arr=arrs[s];if(arr)arr.forEach(c=>c.classList.remove('sel'))}
@@ -1058,6 +1104,7 @@ export function setCellVal(ti,r,s,val,noPaint){
 export function cellPaintStart(ev){
   const pc=ev.target.closest('.pc');if(!pc)return;
   const ti=+pc.dataset.ti,s=+pc.dataset.s;
+  selDownX=ev.clientX||0;selDownY=ev.clientY||0;selDragArmed=false; // “单击 vs 拖动”基准点（见 passedDragThreshold）
   setAccFocus(ti,+pc.dataset.r,s); // 任何一次点中（左/右键）都记下“焦点格”：Shift+↑/↓ 以它为目标
   if(ev.button===2)return;         // 右键：不再直接擦除，改由右键菜单统一入口（见 openAccMenu 的「擦除音符」）
   if(ev.altKey){ // Alt+单击 = 给“粘贴”定位一个起点（不画画）
@@ -1099,11 +1146,21 @@ export function cellPaintMove(ev){
   if(!pressed)return;
   if(drawTool==='select'){
     const pc=ev.target.closest('.pc');if(!pc)return;
+    // 单击只选这一列（1 步）：位移没过阈值就当作“还没开始拖”，不扩展选区
+    if(!selDragArmed){
+      if(!passedDragThreshold(ev))return;
+      selDragArmed=true;
+    }
     extendRegionSel(+pc.dataset.ti,+pc.dataset.s);
     return;
   }
   if(shiftSel){
     const pc=ev.target.closest('.pc');if(!pc)return;
+    // 同上：Shift+单击（含手抖）不进入框选 → cellPaintEnd 仍按“原地单击”处理（亮音=切重音 / 空格=选 1 步）
+    if(!selDragArmed){
+      if(!passedDragThreshold(ev))return;
+      selDragArmed=true;
+    }
     const ti=+pc.dataset.ti;
     if(!shiftSel.done){
       shiftSel.done=true;
@@ -1121,6 +1178,7 @@ export function cellPaintMove(ev){
   setCellVal(ti,r,s,val);
 }
 export function cellPaintEnd(){
+  selDragArmed=false; // 一次手势结束：下次按下重新按阈值判定“单击还是拖动”
   if(shiftSel){
     const ss=shiftSel;shiftSel=null;
     if(!ss.done){ // 原地单击：亮音=切重音/普通；空位或橡皮=选中这一格或擦除
@@ -1145,7 +1203,14 @@ export function cellPaintEnd(){
    · 触发：Shift+↑/↓ 为主，右键菜单兜底；只新增 class，不改任何既有 id/class
    ========================================================================= */
 function clearAccFocus(){
-  if(accFocusCell)accFocusCell.classList.remove('accFocus');
+  if(accFocusCell){
+    accFocusCell.classList.remove('accFocus');
+    // 加固：refocusAccCell() 会给格子临时加 tabindex=-1 并聚焦，收焦点时一并撤掉 ——
+    // 否则那个 DOM 焦点会留着，命中全站 :focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+    // 的“正偏移”青框（cw 小的时候看上去比格子宽 1.5~2 倍）。removeAttribute 不一定能撤销焦点，
+    // 所以显式 blur 一次。
+    try{accFocusCell.removeAttribute('tabindex');accFocusCell.blur()}catch(e){}
+  }
   accFocusCell=null;accFocus=null;
 }
 function setAccFocus(ti,r,s){

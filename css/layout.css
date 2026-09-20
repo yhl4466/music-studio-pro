@@ -86,15 +86,19 @@ input[type=range]:disabled{opacity:.5;cursor:not-allowed}
 .numInp{width:52px;font:600 var(--fs-body) var(--mono);text-align:center;padding:0 4px}
 .numInp:hover,.tname:hover,.seedRow input:hover{border-color:var(--sig)}
 .numInp:focus,.tname:focus,.seedRow input:focus{outline:none;border-color:var(--sig);box-shadow:inset 0 0 0 2px rgba(var(--acc-rgb),.35)}
-/* 下拉（任务 4）：统一 32 高 + appearance:none + 自绘 5px×2 三角（纯 CSS 渐变，不引图片） */
-.stepsSel,.sel,.miniSel{height:var(--h);background-color:var(--ctl-bg2);border:1px solid var(--hair-2);border-radius:var(--r-xs);
+/* 下拉（任务 4）：统一 32 高 + appearance:none + 自绘 5px×2 三角（纯 CSS 渐变，不引图片）
+   —— 选择器必须排除时间线的选中格：.pc 也会带 .sel（area 选区高亮），
+      若被这条共享规则命中，格子会吃到 padding:0 24px 0 8px + 1px 全边框 →
+      在 box-sizing:border-box 下内容盒被压到 0、border-box 反被撑到固定 34px 并溢出轨道，
+      表现为“选中的音符被拉长 / 选区看着多出好几格”，且该宽度与 --cw 无关（缩放时格数还会变）。 */
+.stepsSel,.sel:not(.pc),.miniSel{height:var(--h);background-color:var(--ctl-bg2);border:1px solid var(--hair-2);border-radius:var(--r-xs);
   padding:0 24px 0 8px;font-size:var(--fs-body);color:var(--txt);cursor:pointer;font-family:inherit;
   -webkit-appearance:none;appearance:none;
   background-image:linear-gradient(45deg,transparent 50%,var(--mut) 50%),linear-gradient(135deg,var(--mut) 50%,transparent 50%);
   background-position:right 11px center,right 7px center;background-size:5px 5px,5px 5px;background-repeat:no-repeat;
   transition:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out)}
-.stepsSel:hover,.sel:hover,.miniSel:hover{border-color:var(--sig)}
-.stepsSel:focus,.sel:focus,.miniSel:focus{outline:none;border-color:var(--sig);box-shadow:inset 0 0 0 2px rgba(var(--acc-rgb),.35)}
+.stepsSel:hover,.sel:not(.pc):hover,.miniSel:hover{border-color:var(--sig)}
+.stepsSel:focus,.sel:not(.pc):focus,.miniSel:focus{outline:none;border-color:var(--sig);box-shadow:inset 0 0 0 2px rgba(var(--acc-rgb),.35)}
 
 .acts{display:flex;gap:8px;align-items:center;flex:none}
 .btn{height:var(--h);padding:0 13px;border-radius:var(--r-sm);border:1px solid var(--hair-2);background:var(--card);color:var(--txt);
@@ -329,10 +333,29 @@ input.numTickAlt{animation:numTickSoftAlt var(--dur-fast) var(--ease-out)}
 .btn.icoBtn{padding:0;width:var(--h);justify-content:center}
 .toolGrp{background:var(--card)}
 .toolGrp button{font-size:12px;width:24px}
-/* 区域选择（复制/粘贴）高亮：同样补高权重，保证拍线上也能看到选区 */
-.pc.sel{box-shadow:inset 0 0 0 2px rgba(255,208,90,.95);background:rgba(255,208,90,.13);z-index:2}
+/* 区域选择（复制/粘贴/量化/细分）高亮 —— 两段式：
+   ① 逐格只留浅黄底色（不再逐格描黄框：选区覆盖整轨所有行，逐格描边会被读成“一堆格子”而不是“一段范围”）；
+   ② 范围边界交给轨道体 .tgBody 上的 ::before 竖带（左右两条线 + 更淡的底，高度=整轨行高），
+      位置/宽度由 JS 写在 --selFrom / --selN 两个 CSS 变量上（见 ui/timeline.js 的 paintSelBand）。
+   ③ 描边宽度一律 clamp(1px, --cw*.12, 3px)：跟着格子宽度缩放 —— 128 小节缩到 cw=4px 时细而不糊、
+      短曲放大到 cw=30px 时也不会显得只有一根发丝。 */
+.pc.sel{background:rgba(255,208,90,.13);z-index:2}
 .mel .pc.sel,.drum .pc.sel{background:rgba(255,208,90,.13)}
-.pc.sel.on{box-shadow:inset 0 0 0 2px rgba(255,214,80,1), inset 0 0 8px rgba(255,208,90,.5)}
+.tgBody{position:relative}
+.tgBody::before{
+  /* top/bottom 与 timeline.css 的 .tgBody{padding:2px 0 6px} 对齐，让竖带正好覆盖整片琴键行 */
+  content:'';position:absolute;top:2px;bottom:6px;display:none;pointer-events:none;z-index:1;
+  left:calc(var(--labW) + var(--selFrom,0) * var(--cw));
+  width:calc(var(--selN,0) * var(--cw));
+  background:rgba(255,208,90,.07);
+  border-left:clamp(1px, calc(var(--cw) * .12), 3px) solid rgba(255,208,90,.85);
+  border-right:clamp(1px, calc(var(--cw) * .12), 3px) solid rgba(255,208,90,.85);
+}
+.tgBody.selOn::before{display:block}
+.tgBody.selCutL::before{border-left-color:transparent} /* 选区左端在当前渲染窗口之外：不画假边界 */
+.tgBody.selCutR::before{border-right-color:transparent}
+/* 选中音符不再套逐格描边：延音音符在 pat 里是相邻多格，逐格描边并排会读成“2 倍宽的一圈框”；
+   “范围”由上面的竖带表达、“选中”由浅黄底色表达，已经够用，所以这里只留一条 playCol 的抑制规则。 */
 .pc.sel.playCol{outline:none}
 /* 量化结果闪亮反馈：内描边 + 底色调（去掉 8px 外发光与 brightness 滤镜 —— 那是整格重绘最贵的一笔）；
    时长用 --dur-flash（1200ms）：这是"看得清哪几个音被移动了"的功能性动画，比 --dur-slow 长。 */

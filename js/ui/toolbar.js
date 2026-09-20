@@ -405,15 +405,26 @@ export function showHelp(){
     <div class="h2">② 手动编辑（时间线）</div>
     <div class="small" style="line-height:1.9">
       ・ 旋律轨按音阶度数分行（转调自动跟随），鼓组 8 行合成鼓；点行名可试听。<br>
-      ・ <span style="color:var(--acc)">左键拖拽</span>画音符（从亮格拖=擦除）· <b>右键</b>打开音符菜单（♯ 升 / ♭ 降 / ♮ 还原 / 擦除）· <b>Shift+单击亮音</b>=切重音/普通。<br>
+      ・ <span style="color:var(--acc)">左键拖拽</span>画音符（从亮格拖=擦除）· <b>右键</b>打开音符菜单（♯ 升 / ♭ 降 / ♮ 还原 / ✕ 擦除 / ↩ 撤销）· <b>Shift+单击亮音</b>=切重音/普通。<br>
+      ・ <b>加升降号</b>：点中一个音符格，<kbd>Shift+↑</kbd> 升半音、<kbd>Shift+↓</kbd> 降半音；再按反方向=还原成自然音（♮）。<b>先框选一段</b>再按，则整段一起改。<br>
+      ・ <b>右键音符</b>=弹出菜单：♯ 升半音 / ♭ 降半音 / ♮ 还原 / ✕ 擦除音符 / ↩ 撤销（擦除已收进菜单；左键从亮格拖、或橡皮工具仍是直接擦除）。<br>
       ・ <b>格子太小点不准？</b>Ctrl+滚轮 或点顶部 <b>−/100%/＋/⤢适配</b> 缩放（Ctrl±、Ctrl+0 复位）。<br>
       ・ <b>拍号</b>：顶部左侧可选 <b>4/4 · 3/4 · 2/4 · 6/8 · 5/4 · 7/8 · 12/8</b>；切换会按小节重排现有音符（Ctrl+Z 可撤销），标尺/节拍器/位置显示/WAV 与 MIDI 导出都会自动跟随。<br>
       ・ <b>${icon('music')} 节奏细分（连音）</b>：先用 ${icon('marquee')}/Shift <b>框选整数拍</b>（起点对齐步 0/4/8/12…），再到顶部量化按钮旁选 <b>2/3/4/5/6 连音</b> 并点「${icon('quaver')} 应用细分」——选区里每拍的起音会变成 N 个<b>等长精确时值</b>（各 1/N 拍，2/3/4/5/6 全部无浮点误差），MIDI 导出按真实比例（3 连音 = 160 tick）；选「还原为网格」可回到普通格子（可 Ctrl+Z）。轨道页侧栏「${icon('quaver')} 节奏细分」是同一功能。<br>
-      ・ <b>${icon('marquee')} 框选区域</b>：点 ${icon('marquee')} 选区 后拖动；或<b>任意工具下按住 Shift 拖动</b>即可框选（状态条会显示范围与音符数，Esc 取消）。<br>
+      ・ <b>${icon('marquee')} 框选区域</b>：点 ${icon('marquee')} 选区 后<b>拖动</b>才框选；<b>单击</b>（手抖几像素也算单击）= 只选<b>这一列（1 步）</b>；任意工具下<b>按住 Shift 拖动</b>同样能框选（状态条显示范围与音符数，Esc 取消）。选区覆盖该轨<b>所有行</b>、只按步算，竖带只在你真的框了多步时才出现。<br>
       ・ <b>${icon('copy')} 复制 / ${icon('paste')} 粘贴（Ctrl+C / Ctrl+V）</b>：框选一段 → 复制 → 把<b>播放头</b>移到目标轨起点（或按住 <b>Alt</b> 单击目标格直接定位）→ 粘贴；越界自动加小节，旋律/鼓不能混贴。<br>
       ・ <b>${icon('target')} 量化</b>：选 1/8 / 1/4 网格与强度后点「吸附」。<b>没有选区=整首量化；先用 ${icon('marquee')}/Shift 框选一段=只量化那一段</b>。点吸附前会实时显示“预计移动 ~N 处”；完成后被移动/合并的音符会<b>闪绿</b>，结果条会说明“移动 N 处、去重合并 M 处”，可 Ctrl+Z 撤销。<br>
       ・ 顶部<b>进度条</b>点击/拖动可任意跳转；标尺也可拖动定位。<br>
       ・ <b>${icon('undo')} 撤销 / ${icon('redo')} 重做</b>（Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y）覆盖大部分操作。
+    </div>
+
+    <div class="h2">${icon('music')} 半音记号（♯ / ♭）</div>
+    <div class="small" style="line-height:1.9">
+      ・ 每个音符都可以带一个记号：<b>♯</b>=升半音、<b>♭</b>=降半音，音高按“该行自然音级 ±1 半音”计算。<br>
+      ・ 有记号的格子在<b>右上角</b>显示 ♯ / ♭ 并带一圈淡淡的内描边；最近点中的那一格（焦点格）另有一圈主题色外环。<br>
+      ・ 左侧行标签始终显示<b>基础音名</b>（如 C）；该行有记号时后面追加灰色小记号 ♯ / ♭ —— 具体是哪个格，看格子右上角。<br>
+      ・ 记号<b>跟着音符一起走</b>：量化、复制/粘贴、节奏细分（连音↔网格）、切换拍号、缩小音域都不会丢；<br>
+      ・ MIDI 导出/导入<b>保留音高</b>，但记谱可能变（MIDI 只存音高：D♭ 回来可能记作 C♯，听感完全一样）。
     </div>
 
     <div class="h2">③ 轨道与混音</div>
@@ -479,7 +490,8 @@ export function showHelp(){
     <div class="helpLine"><kbd>Shift+拖动 / ${icon('marquee')} 选区</kbd><span>框选一段（用于 复制 或 区域量化）</span></div>
     <div class="helpLine"><kbd>Shift+单击亮音</kbd><span>切 重音/普通 力度</span></div>
     <div class="helpLine"><kbd>Alt+单击格子</kbd><span>把该格定为“粘贴起点”</span></div>
-    <div class="helpLine"><kbd>Shift+↑ / Shift+↓</kbd><span>给选中的音符加 ♯ / ♭（再按反方向=还原；框选后按=整段一起改）</span></div>
+    <div class="helpLine"><kbd>Shift+↑</kbd><span>升半音（♯）：点中音符格后按；框选后按=整段一起升</span></div>
+    <div class="helpLine"><kbd>Shift+↓</kbd><span>降半音（♭）：反方向再按一次=还原成自然音</span></div>
     <div class="helpLine"><kbd>Ctrl+滚轮 / Ctrl± / Ctrl+0</kbd><span>时间线缩放 / 复位</span></div>
     <div class="helpLine"><kbd>Esc</kbd><span>取消框选 / 关菜单 / 关弹窗</span></div>
     <div class="helpLine"><kbd>Ctrl+S</kbd><span>快速保存</span></div>
