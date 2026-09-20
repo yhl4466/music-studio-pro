@@ -1,6 +1,6 @@
 /* [midi.js] source: Pro.html 2496-2787（SMF 格式 1 导出 / 导入） */
 import { proj, newTrack, allocPat, meterN, meterD, SPB, rowMidi, rowMidiAt, MAX_BARS } from '../core/state.js';
-import { KIT, MEL_ROWS, SCALES, ROLES, PREC_U_PER_STEP, trackRows } from '../core/theory.js';
+import { KIT, MEL_ROWS, SCALES, ROLES, PREC_U_PER_STEP, trackRows, setAcc } from '../core/theory.js';
 import { toast, downloadBlob, UI, hooks } from '../core/util.js';
 import { beginEdit, commitEdit, markDirtyUI, setPendingPre } from './project.js';
 import { rebuildEvents } from '../audio/engine.js';
@@ -267,23 +267,33 @@ export function importMidiData(m){
   if(!proj.tracks.length){
     const lt=newTrack('mel','lead');allocPat(lt,proj.steps,MEL_ROWS);proj.tracks.push(lt);
   }
+  /* 反解：在轨内音阶行里找最接近该 MIDI 音高的自然音级行，并给出半音差（= 这个音需要的升降号）。
+     · 距离相同（正好卡在两个音级中间，例如 C 大调里的 61 = C#/Db）→ 取更低的那个音级 → acc=+1（♯）；
+       升序扫描 + “严格更小才替换”天然就是这个结果，这里再加显式条件钉死，避免将来改扫描顺序时行为漂移。
+     · acc=0/±1 才是可信的“谱面升降号”；±2、±3 说明音高不在音阶 ±1 半音范围内（多半是音域边缘或调外音），
+       调用方按“吸附到最近音级、但不写记号”处理 —— 与旧版一致，不丢音。 */
+  const findRowWithAcc=(tr,midi)=>{
+    const rows=trackRows(tr);
+    let best=0,bd=99,bacc=0;
+    for(let r=0;r<rows;r++){
+      const nat=rowMidi(tr,r),d=Math.abs(midi-nat),a=midi-nat;
+      if(d<bd||(d===bd&&bacc<0&&a>0)){bd=d;best=r;bacc=a}
+    }
+    return {row:best,acc:bacc,dist:bd};
+  };
   const placeRun=(tr,r)=>{
     const st=r.on/noteTicks;                        // 精确位置（可能落在 16 分网格之间）
     const s0=Math.round(st);
     const durF=(r.off-r.on)/noteTicks;              // 时值（步）
-    // 导入反解：只用 rowMidi（自然音级）—— MIDI 音高无法区分“谱面 ♯”与“调内音”，
-    // 因此导入端刻意不猜 acc：升号会落在最近的自然音级上，音高听感保持、记号不还原（诚实限制，见汇报）
     // 精确时值判定：起点偏离网格 ±0.02 步（≈1.2u），或（非鼓组）时值不是整数步——后者用于 3 连音中
     // 正好落在网格上的首音（u=0/240…），它同样是 prec（时值 80u≈1.33 步）；鼓组导出恒用半步时值，故排除
     const offGrid=Math.abs(st-Math.floor(st))>0.02||(r.ch!==9&&Math.abs(durF-Math.round(durF))>0.02);
     if(s0>=proj.steps)return;
-    let best=0,bd=99;
-    for(let rr=0;rr<trackRows(tr);rr++){
-      const mm=rowMidi(tr,rr);
-      const d0=Math.abs(mm-r.note);
-      if(d0<bd){bd=d0;best=rr}
-    }
-    if(bd>3)return;
+    // 两步匹配：最近自然音级行 + 半音差 → 升降号（C# 导入回来仍是 C 行 + ♯，不再被吸成 C 或 D）
+    const hit=findRowWithAcc(tr,r.note);
+    const best=hit.row;
+    if(hit.dist>3)return;                              // 音高差太大（离所有音级都远）→ 丢弃（原判定不变）
+    const acc=(hit.acc===1||hit.acc===-1)?hit.acc:0;   // 只有真正的 ±1 半音差才算升降号
     const v0=Math.min(1,Math.max(.3,r.vel/127));
     if(offGrid){
       // —— 精确时值分支：写入 trk.prec，不写 pat（同一音绝不既进 pat 又进 prec，避免 fireStep 双触发）——
@@ -299,6 +309,7 @@ export function importMidiData(m){
       const dup=tr.prec.find(p=>p.row===best&&Math.abs(p.u-uAbs)<=1);
       if(dup){ console.warn('MIDI 导入：已存在同格同行同 u 的精确音（u='+dup.u+'），丢弃重复项'); return; }
       tr.prec.push({row:best,u:uAbs,durU,vel:v0});
+      if(acc)setAcc(tr,step,best,acc); // 升降号写在“这个精确音所在的格”上（fireStep 正是按 floor(u/60) 取偏移）
       return;
     }
     // —— 普通网格分支（原逻辑不变）——
@@ -312,6 +323,7 @@ export function importMidiData(m){
       const v=d===0?v0:v0*.9;
       tr.pat[s0+d][best]=Math.max(tr.pat[s0+d][best]||0,v);
     }
+    if(acc)setAcc(tr,s0,best,acc); // 记号落在该音起音那一格（延续格由起音的 acc 决定音高）
   };
   for(const role in groups){
     const tr=tracksByRole[role];
