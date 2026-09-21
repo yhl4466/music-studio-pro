@@ -415,7 +415,9 @@ export function showHelp(){
       ・ <b>格子太小点不准？</b>Ctrl+滚轮 或点顶部 <b>−/100%/＋/⤢适配</b> 缩放（Ctrl±、Ctrl+0 复位）。<br>
       ・ <b>拍号</b>：顶部左侧可选 <b>4/4 · 3/4 · 2/4 · 6/8 · 5/4 · 7/8 · 12/8</b>；切换会按小节重排现有音符（Ctrl+Z 可撤销），标尺/节拍器/位置显示/WAV 与 MIDI 导出都会自动跟随。<br>
       ・ <b>${icon('music')} 节奏细分（连音）</b>：先用 ${icon('marquee')}/Shift <b>框选整数拍</b>（起点对齐步 0/4/8/12…），再到顶部量化按钮旁选 <b>2/3/4/5/6 连音</b> 并点「${icon('quaver')} 应用细分」——选区里每拍的起音会变成 N 个<b>等长精确时值</b>（各 1/N 拍，2/3/4/5/6 全部无浮点误差），MIDI 导出按真实比例（3 连音 = 160 tick）；选「还原为网格」可回到普通格子（可 Ctrl+Z）。轨道页侧栏「${icon('quaver')} 节奏细分」是同一功能。<br>
-      ・ <b>${icon('marquee')} 框选区域</b>：点 ${icon('marquee')} 选区 后<b>拖动</b>才框选；<b>单击</b>（手抖几像素也算单击）= 只选<b>这一列（1 步）</b>；任意工具下<b>按住 Shift 拖动</b>同样能框选（状态条显示范围与音符数，Esc 取消）。选区覆盖该轨<b>所有行</b>、只按步算，竖带只在你真的框了多步时才出现。<br>
+      ・ <b>${icon('marquee')} 选区工具</b>：<b>单击 = 只选 1 步</b>（一列；手抖几像素也算单击）；<b>按住拖动 = 框选多步</b>。<br>
+      ・ <b>任意工具下按住 Shift 拖动</b> 也能框选（不必先切工具），状态条会显示范围与音符数。<br>
+      ・ 选区只按「<b>哪条轨 + 哪几步</b>」算、<b>不含行范围</b>：该轨这几步的<b>所有行</b>都会高亮（浅黄底 + 整轨高的竖带；竖带只在你真的框了多步时才出现）。Esc 取消。<br>
       ・ <b>${icon('copy')} 复制 / ${icon('paste')} 粘贴（Ctrl+C / Ctrl+V）</b>：框选一段 → 复制 → 把<b>播放头</b>移到目标轨起点（或按住 <b>Alt</b> 单击目标格直接定位）→ 粘贴；越界自动加小节，旋律/鼓不能混贴。<br>
       ・ <b>${icon('target')} 量化</b>：选 1/8 / 1/4 网格与强度后点「吸附」。<b>没有选区=整首量化；先用 ${icon('marquee')}/Shift 框选一段=只量化那一段</b>。点吸附前会实时显示“预计移动 ~N 处”；完成后被移动/合并的音符会<b>闪绿</b>，结果条会说明“移动 N 处、去重合并 M 处”，可 Ctrl+Z 撤销。<br>
       ・ 顶部<b>进度条</b>点击/拖动可任意跳转；标尺也可拖动定位。<br>
@@ -440,14 +442,25 @@ export function showHelp(){
 
     <div class="h2">④ 演奏</div>
     <div class="small" style="line-height:1.9">
-      ・ 底部钢琴<b>按住可左右滑动连奏、松手释放</b>；电脑键盘 <kbd>A~L</kbd> 白键、<kbd>W E T Y U O P</kbd> 黑键，八度 ±。<br>
-      ・ <b>${icon('target')} 对准音区</b>把键盘起点对齐到所选旋律轨，方便跟弹；<kbd>X</kbd> 试听旋律轨音符。
+      ・ 底部钢琴<b>按住可左右滑动连奏、松手释放</b>；音域 <b>3 个八度</b>（默认 C4–C7，22 白键 + 15 黑键 = 37 键），键宽随窗口自适应。<br>
+      ・ 电脑键盘：白键 <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd> <kbd>G</kbd> <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd>；黑键 <kbd>W</kbd> <kbd>E</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>O</kbd> <kbd>P</kbd>（覆盖当前起点起的一个多八度）。<br>
+      ・ <b>切八度</b>：<kbd>Z</kbd> 降一整个八度、<kbd>X</kbd> 升一整个八度（也可点键盘上方的 −/＋ 按钮）；起点范围 <b>C2–C6</b>。<br>
+      ・ 当前起点显示在键盘上方「八度」处（如 <b>C4</b>），每次切换状态条也会回显「键盘起点：C4」。<br>
+      ・ <b>${icon('target')} 对准音区</b>把键盘起点对齐到所选旋律轨，方便跟弹；<kbd>R</kbd> 试听旋律轨上一个随机音符。
+    </div>
+
+    <div class="h2">${icon('keys')} 键盘全览</div>
+    <div class="small" style="line-height:1.9">
+      ・ 音域：<b>3 个八度</b>（默认 <b>C4 → C7</b>，37 键）；白键音名标在键上，窄窗口下只保留每个 C 的名字。<br>
+      ・ 起点切换：<kbd>Z</kbd> 降 / <kbd>X</kbd> 升（各一整个八度），键盘整排与起点标签同步重建。<br>
+      ・ 范围限制：起点只能落在 <b>C2 到 C6</b>；到边界再按会<b>停住</b>并提示「键盘起点已是 C6（上限 C6）」/「…C2（下限 C2）」。<br>
+      ・ 与可视化页<b>共享同一套音频引擎</b>（都用 audio/engine.js + synth.js）：这里选中的音色/滤波/包络参数，两边听感一致。
     </div>
 
     <div class="h2">⑤ ${icon('palette')} 音乐可视化（独立页面）</div>
     <div class="small" style="line-height:1.9">
       ・ 入口：菜单「${icon('chart')} 可视化」（会把当前工程复制到独立页面），或直接在那边点「${icon('contrast')} 生成封面」。<br>
-      ・ 数据来源与主应用<b>完全相同</b>（同一份工程 / 同一个 localStorage 渠道），两边随时可来回切换，互不影响。
+      ・ 数据来源与主应用<b>完全相同</b>（同一份工程 / 同一个 localStorage 渠道），两边随时可来回切换，互不影响；<b>♯/♭ 升降号也会一起带过去</b>（音高分析与指纹/卡片上的音高分布都按实际音高算）。
     </div>
 
     <div class="helpLine"><span style="color:var(--acc)">8 个实时渲染器</span><span>（顶栏下拉切换，参数在底部）</span></div>
@@ -496,6 +509,9 @@ export function showHelp(){
     <div class="helpLine"><kbd>Alt+单击格子</kbd><span>把该格定为“粘贴起点”</span></div>
     <div class="helpLine"><kbd>Shift+↑</kbd><span>升半音（♯）：点中音符格后按；框选后按=整段一起升</span></div>
     <div class="helpLine"><kbd>Shift+↓</kbd><span>降半音（♭）：反方向再按一次=还原成自然音</span></div>
+    <div class="helpLine"><kbd>Z</kbd><span>钢琴键盘起点降一个八度（范围 C2–C6）</span></div>
+    <div class="helpLine"><kbd>X</kbd><span>钢琴键盘起点升一个八度（范围 C2–C6）</span></div>
+    <div class="helpLine"><kbd>R</kbd><span>试听选中旋律轨上的一个随机音符</span></div>
     <div class="helpLine"><kbd>Ctrl+滚轮 / Ctrl± / Ctrl+0</kbd><span>时间线缩放 / 复位</span></div>
     <div class="helpLine"><kbd>Esc</kbd><span>取消框选 / 关菜单 / 关弹窗</span></div>
     <div class="helpLine"><kbd>Ctrl+S</kbd><span>快速保存</span></div>
