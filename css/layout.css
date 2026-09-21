@@ -275,6 +275,9 @@ input.numTickAlt{animation:numTickSoftAlt var(--dur-fast) var(--ease-out)}
   z-index:3;border:1px solid #000;display:flex;align-items:flex-end;justify-content:center;padding-bottom:3px;
   font:700 8px var(--mono);color:#7fa3c9;user-select:none}
 .bkey.down{background:var(--grad);transform:translateY(2px)}
+/* 3 个八度（22 个白键）在窄容器里键宽会低到 12~15px：白键上的音名会互相压字，
+   此时只保留每个 C 的名字（.narrow 由 sizePianoKeys() 按实际键宽加/去，不改任何既有 class 命名）。 */
+.pKeys.narrow .wkey:not(.C){font-size:0}
 .pinfo{display:flex;align-items:center;justify-content:center;gap:14px;font-size:10.5px;color:var(--dim)}
 .pinfo kbd{background:var(--ctl-bg2);border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font:600 10px var(--mono);color:var(--mut)}
 
