@@ -134,41 +134,22 @@ function hull8(){
 }
 
 /* =========================================================================
-   ↓↓↓ 临时诊断（V5 浏览器现场排查用；只统计+打印，不参与任何绘制决策，验收后整段删除）
+   自检计数（V5 现场排查留下的那套“打印”已在验收后清理：不再往 Console 输出任何东西，
+   只保留数值累计，供 Console 里按需查看 __vz.current().dbg / 自检脚本读取）。
    统计口径：
    · inv        = 本帧"先画了远柱、后画近柱"的逆序次数（应为 0；就是"镂空"的度量）
    · runs       = 本帧的批次数（每批次 ≈ 2 次 fill）
    · hullPts    = 本帧写入的凸包顶点总数（每柱 3~8 个）
-   · hidden / degenerate = 改为凸包画法后不再存在（恒为 0），保留字段是为了对齐旧日志
+   · hidden / degenerate = 改为凸包画法后不再存在（恒为 0），保留字段是为了对齐旧口径
    · rowSpread  = 同一行内柱子的深度跨度（世界单位，网格半宽=1）；depthSpan = 整幅网格的深度跨度
-   关闭方式：Console 里 __vz.current().dbg.on=false
+   关闭方式：Console 里 __vz.current().dbg.on=false（关掉后这些计数不再更新）
    ========================================================================= */
 const _dbg={
-  on:true, every:60, frames:0,
+  on:true, frames:0,
   gridMs:0, geoMs:0, pathMs:0, drawMs:0,
   bars:0, fills:0, quads:0, runs:0, hullPts:0, hidden:0, degenerate:0, inv:0,
-  rowSpread:0, depthSpan:1, degPrev:-1, qcur:-1, qName:''
+  rowSpread:0, depthSpan:1
 };
-const _q=[0,1,2,3].map(()=>({n:0,deg:0,hid:0,inv:0,bars:0,msMax:0,msMin:1e9}));
-function dbgQuadrant(yaw){ return ((Math.floor((((yaw%(Math.PI*2))+Math.PI*2)%(Math.PI*2))/(Math.PI/2))%4)+4)%4 }
-function dbgLog(yaw,pitch,B,D){
-  const q=_q[dbgQuadrant(yaw)];
-  console.log('[forest]',{bars:_dbg.bars,fills:_dbg.fills,quads:_dbg.quads,cells:B*D,
-    runs:_dbg.runs,hullPts:_dbg.hullPts,hidden:0,degenerate:0,inv:_dbg.inv,
-    rowSpread:+_dbg.rowSpread.toFixed(4),depthSpan:+_dbg.depthSpan.toFixed(3),
-    rowSpreadPct:Math.round(_dbg.rowSpread/Math.max(1e-6,_dbg.depthSpan)*100),
-    drawMs:+_dbg.drawMs.toFixed(2),gridMs:+_dbg.gridMs.toFixed(2),
-    geoMs:+_dbg.geoMs.toFixed(2),pathMs:+_dbg.pathMs.toFixed(2),
-    yawDeg:Math.round(yaw*180/Math.PI),pitchDeg:Math.round(pitch*180/Math.PI),bands:B,depth:D});
-  if(q.n){   // 每跨过一个 90° 象限，汇总一行，便于回答"某些角度是否突然激增"
-    console.log('[forest-q]',{quad:_dbg.qName,frames:q.n,barsAvg:Math.round(q.bars/q.n),
-      degMax:q.deg,degAvg:+(q.deg/q.n).toFixed(1),hidMax:q.hid,hidAvg:+(q.hid/q.n).toFixed(1),
-      invMax:q.inv,drawMsMin:+q.msMin.toFixed(2),drawMsMax:+q.msMax.toFixed(2)});
-  }
-  const nq=_q[dbgQuadrant(yaw)];
-  nq.n=0; nq.deg=0; nq.hid=0; nq.inv=0; nq.bars=0; nq.msMax=0; nq.msMin=1e9;
-  _dbg.qcur=dbgQuadrant(yaw);
-}
 /* 显示曲线 LUT：byte(0..255) → 归一高度（模块加载时一次算好） */
 const GAMUT=new Float32Array(256);
 for(let i=0;i<256;i++){
@@ -665,21 +646,9 @@ export const forest={
     S.yaw=_c.yaw; S.pitch=_c.pitch; S.zoom=_c.zoom;    // 原值（不做四舍五入，便于自检脚本反推相机）
     S.bands=B; S.depth=D;
 
-    /* 7) 临时诊断：每 60 帧打印一次；跨 90° 象限时打印该象限汇总；degenerate 突增时单独打一行 */
+    /* 7) 自检计数（不再打印）：只累计数值，供 __vz.current().dbg 按需查看 */
     if(_dbg.on){
       _dbg.bars=bars; _dbg.fills=fills; _dbg.quads=bars*2; _dbg.drawMs=ms;
-      const qd=dbgQuadrant(_c.yaw), q=_q[qd];
-      q.n++; q.bars+=bars; q.inv+=_dbg.inv;
-      if(_dbg.degenerate>q.deg)q.deg=_dbg.degenerate;
-      if(_dbg.hidden>q.hid)q.hid=_dbg.hidden;
-      if(ms>q.msMax)q.msMax=ms;
-      if(ms<q.msMin)q.msMin=ms;
-      if((_dbg.degPrev>=0&&_dbg.degenerate>Math.max(24,_dbg.degPrev*3))||_dbg.degenerate>_dbg.degPrev+400)
-        console.log('[forest-spike]',{degenerate:_dbg.degenerate,prev:_dbg.degPrev,hidden:_dbg.hidden,
-          inv:_dbg.inv,yawDeg:Math.round(_c.yaw*180/Math.PI),pitchDeg:Math.round(_c.pitch*180/Math.PI)});
-      _dbg.degPrev=_dbg.degenerate;
-      if(_dbg.qcur!==qd){ _dbg.qName='yaw '+Math.round(dbgQuadrant(_c.yaw)*90)+'°~'+Math.round((dbgQuadrant(_c.yaw)+1)*90)+'°'; _dbg.qcur=qd }
-      if(_dbg.frames%_dbg.every===0)dbgLog(_c.yaw,_c.pitch,B,D);
     }
   }
 };

@@ -13,26 +13,10 @@
 import { el } from '../core/util.js';
 
 /* =========================================================================
-   ↓↓↓ 临时诊断（FEAT-V6/T4-A：量化切主题耗时；验收后整段删除，不影响切换行为）
-   读法：syncMs = 改完 data-theme 后立刻强制读计算样式+几何量（把重算/布局逼到同步段，阻塞主体）；
-        f1Ms/f2Ms = 到下一帧/再下一帧的累计耗时；longtask = Chromium 阻塞任务（>50ms）。
-   Console 手柄：__themeSet('cyber') 直接换主题；__themeMode('system'|'dark'|'light') 换模式并复测。
+   Console 手柄（保留）：__themeSet('cyber') 直接换主题；__themeMode('system'|'dark'|'light') 换模式。
+   FEAT-V6/T4-A 那套“切主题耗时量化”临时诊断（同步/两帧计时、长任务观察器、每次切换的耗时才打印、
+   以及挂在 window 上的耗时快照）已在验收后整段删除，本文件不再向 Console 输出任何东西。
    ========================================================================= */
-let _ltObs=null,_ltFrom=0,_ltOn=false;
-function _ltStart(){
-  if(_ltOn||typeof PerformanceObserver==='undefined')return;
-  try{
-    _ltObs=new PerformanceObserver((list)=>{
-      if(!_ltOn)return;
-      for(const e of list.getEntries())
-        console.log('[theme-longtask]',{name:e.name,durMs:+e.duration.toFixed(1),startAgoMs:+(e.startTime-_ltFrom).toFixed(1)});
-    });
-    _ltObs.observe({entryTypes:['longtask']});
-    _ltOn=true;
-  }catch(e){}
-}
-function _ltStop(){ _ltOn=false }
-function _now(){ return (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now() }
 let _lastTheme=(typeof document!=='undefined'&&document.documentElement.dataset.theme)||'studio';
 let _trTimer=0,_pulseTimer=0;
 /** 方案 A：切换期间冻结所有过渡（50ms 后自动解除，连点也不会堆积定时器） */
@@ -43,7 +27,7 @@ function _freezeTransitions(){
   _trTimer=setTimeout(()=>{ _trTimer=0; root.classList.remove('theme-transitioning') },50);
 }
 /** 动效（批 3 第 9 项）：切主题时给 <html> 加 .theme-pulse → body::after 走一次 300ms 亮度脉动。
-    只加/减一个 class、只动一个元素的 opacity，不参与切换耗时统计（syncMs 在下一帧前后都已测完）。 */
+    只加/减一个 class、只动一个元素的 opacity；延到下一帧再启动，避免它的强制回流和主题切换挤在同一帧。 */
 function _pulse(){
   const root=document.documentElement;
   root.classList.remove('theme-pulse');
@@ -52,34 +36,11 @@ function _pulse(){
   if(_pulseTimer)clearTimeout(_pulseTimer);
   _pulseTimer=setTimeout(()=>{ _pulseTimer=0; root.classList.remove('theme-pulse') },320);
 }
-function _applyTheme(name,where){
-  const from=_lastTheme;
-  _ltStart(); _ltFrom=_now();
-  const t0=_now();
+function _applyTheme(name){
   _freezeTransitions();
   document.documentElement.dataset.theme=name;
-  let syncMs=0;
-  try{
-    getComputedStyle(document.documentElement).getPropertyValue('--bg0');
-    void document.documentElement.offsetHeight;
-    syncMs=_now()-t0;
-  }catch(e){}
-  const nodes=(typeof document.getElementsByTagName==='function')?document.getElementsByTagName('*').length:0;
   _lastTheme=name;
-  requestAnimationFrame(()=>{
-    const f1=_now()-t0;
-    requestAnimationFrame(()=>{
-      const f2=_now()-t0;
-      _ltStop();
-      console.log('[theme]',{from:from,to:name,via:where||'menu',nodes:nodes,
-        syncMs:+syncMs.toFixed(1),f1Ms:+f1.toFixed(1),f2Ms:+f2.toFixed(1),
-        read:'syncMs=重算+布局（阻塞主体）/ f1Ms=下一帧 / f2Ms=再下一帧（含重绘）'});
-      if(typeof window!=='undefined')window.__themeLast={from,to:name,nodes,syncMs,f1Ms:f1,f2Ms:f2};
-      /* 动效（批 3 第 9 项）：亮度脉动放在两帧测量**之后**再启动 —— 它自己会强制一次回流（重启动画用），
-         放在这里就绝不会混进 syncMs/f1Ms/f2Ms，主题切换耗时口径一个字都没变。 */
-      _pulse();
-    });
-  });
+  requestAnimationFrame(()=>{ _pulse() });
 }
 
 /* =========================================================================
@@ -107,23 +68,23 @@ function _resolve(){
   return {mode:'dark',theme:'studio'};        // 默认深色
 }
 function _store(v){ try{ localStorage.setItem('mpTheme',v) }catch(e){} }
-/** 立即按当前模式应用主题并刷新菜单选中态（where 只用于日志） */
+/** 立即按当前模式应用主题并刷新菜单选中态 */
 function _syncMenu(panel){
   if(!panel)return;
   for(const b of panel.children)b.classList.toggle('on',b.dataset.mode===mode);
 }
-function _apply(panel,where){
+function _apply(panel){
   const r=_resolve();
   mode=r.mode;
-  _applyTheme(r.theme,where);
+  _applyTheme(r.theme);
   _syncMenu(panel);
 }
 /** 设置模式：'dark' | 'light' | 'system'（写 localStorage 后立即生效） */
-function setMode(m,panel,where){
+function setMode(m,panel){
   const hit=MODES.filter(x=>x.key===m)[0];
   if(!hit)return false;
   _store(hit.key==='system'?'system':hit.theme);
-  _apply(panel,where||'menu');
+  _apply(panel);
   return true;
 }
 
@@ -147,20 +108,20 @@ export function bindTheme(){
   btn.addEventListener('click',e=>{e.stopPropagation();_syncMenu(panel);panel.classList.toggle('open')});
   panel.addEventListener('click',e=>{
     const mi=e.target.closest('.mi');if(!mi)return;e.stopPropagation();
-    setMode(mi.dataset.mode,panel,'menu');
+    setMode(mi.dataset.mode,panel);
     panel.classList.remove('open');
   });
   document.addEventListener('click',()=>panel.classList.remove('open'));
   /* 跟随系统：系统深浅变化时实时跟随（只在 system 模式下生效） */
   const m=_mq();
   if(m){
-    const onChange=()=>{ if(mode==='system')_apply(panel,'system-change') };
+    const onChange=()=>{ if(mode==='system')_apply(panel) };
     try{ m.addEventListener('change',onChange) }catch(e){ try{ m.addListener(onChange) }catch(e2){} }
   }
   /* 进页面时按 mpTheme 解析一次（main.js 已按原始值设过 data-theme，这里修正 system 与旧值） */
-  _apply(panel,'boot');
+  _apply(panel);
   if(typeof window!=='undefined'){
-    window.__themeSet=(name)=>{ _store(String(name)); _apply(panel,'console'); };
-    window.__themeMode=(m)=>{ if(!m)return {mode:mode,stored:_stored(),applied:_lastTheme,systemDark:!!(_mq()&&_mq().matches)}; return setMode(String(m),panel,'console-mode') };
+    window.__themeSet=(name)=>{ _store(String(name)); _apply(panel); };
+    window.__themeMode=(m)=>{ if(!m)return {mode:mode,stored:_stored(),applied:_lastTheme,systemDark:!!(_mq()&&_mq().matches)}; return setMode(String(m),panel) };
   }
 }
