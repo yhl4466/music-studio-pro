@@ -128,15 +128,18 @@ function reshapePool(n){
   if(ruler&&c.rulerCells){
     if(n>c.rulerCells.length){
       for(let i=c.rulerCells.length;i<n;i++){
-        const cell=el('div','rs'+stepClass(from+i));
-        cell.dataset.s=from+i;cell._s=from+i;
-        if((from+i)%SPB()===0)cell.innerHTML='<span>'+((from+i)/SPB()+1)+'</span>';
+        const cell=el('div',rulerCls(from+i));
+        cell._s=from+i;
         c.rulerCells.push(cell);ruler.appendChild(cell);
       }
     }else if(n<c.rulerCells.length){
       const drop=c.rulerCells.splice(n,c.rulerCells.length-n);
       drop.forEach(cell=>{try{cell.remove()}catch(e){}});
     }
+    /* ② 编号基准统一：增/减列之后按“新窗口起点”整体重标一次。
+       原来只给新追加的格子按 from+i 赋值，而 from 是“新窗口起点”、i 却从旧长度起算 →
+       两套基准混用会把格子标到工程范围之外（实测出现过 s=295 > 总步数 288）。 */
+    for(let i=0;i<c.rulerCells.length;i++)tagRulerCell(c.rulerCells[i],from+i);
   }
   c.win.n=n;c.win.cw=cw;c.win.viewW=measuredViewW();
   setWindowIndex(c,from,n);
@@ -162,9 +165,13 @@ function applyZoomCw(){
   syncWindowNow(true);
   return true;
 }
+/* 标尺格的 class（唯一拼法）：全量重建 renderRuler、增量复用 tagRulerCell、池增列 reshapePool 三处共用。
+   注意不能改用 stepClass()：它给 .pc 用，普通档返回空串（'.pc' 的竖线是无条件 border、不靠 plain），
+   标尺的普通档必须显式带 plain，否则 CSS `.ruler .rs.plain{border-right:…}` 不命中 → 标尺竖线消失。 */
+function rulerCls(s){return 'rs '+(s%SPB()===0?'bar':(s%beatSteps()===0?'beat':'plain'))}
 function tagRulerCell(cell,s){
   cell.dataset.s=s;
-  cell.className='rs'+stepClass(s);
+  cell.className=rulerCls(s);
   cell.innerHTML=s%SPB()===0?'<span>'+(s/SPB()+1)+'</span>':'';
 }
 export function syncWindowNow(force){
@@ -418,7 +425,7 @@ export function renderRuler(){
   if(win)r.appendChild(el('div','')); // 与行同理：占住标尺的偏移轨道，避免整条标尺左移一列
   if(win)proj._uiCache.rulerCells=[];
   for(let s=from;s<to;s++){
-    const c=el('div', s%SPB()===0?'rs bar':(s%beatSteps()===0?'rs beat':'rs plain'));
+    const c=el('div', rulerCls(s));
     if(s%SPB()===0)c.innerHTML='<span>'+(s/SPB()+1)+'</span>';
     if(win){c.dataset.s=s;proj._uiCache.rulerCells.push(c)}
     r.appendChild(c);
