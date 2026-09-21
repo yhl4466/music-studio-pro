@@ -278,6 +278,9 @@ function analyzeMidi(proj){
     const rows=Math.min(MEL_ROWS_MAX,trackRows(t));  // 行数与显示逻辑一致（鼓轨 = KIT.length），只夹上限防越界
     const shift=Number(t.shift)||0;
     for(let r=0;r<rows;r++)rowSemi[r]=shift+(isDrum?0:degSemi(mode,r));
+    /* 升降号：主应用的 t.acc = {[step]:{[row]:-1|0|1}}（稀疏表），rowSemi 只提供“自然音级基准”，
+       实际音高要按 (step,row) 现查一次偏移再加。缺字段/缺键/非 ±1 一律按 0；鼓组轨不参与音高。 */
+    const accMap=t.acc||null;
     const pat=Array.isArray(t.pat)?t.pat:[];
     const lim=Math.min(pat.length,steps);
     for(let s=0;s<lim;s++){
@@ -288,7 +291,7 @@ function analyzeMidi(proj){
         if(!(col[r]>0))continue;
         const bar=clamp(Math.floor(s/stepsPerBar),0,bars-1);
         if(isDrum){ density[bar]+=1; drumHits++ }
-        else{ const m=kb+rowSemi[r]; hist[((m%12)+12)%12]++; density[bar]+=1; noteCount++ }
+        else{ const av=(accMap&&accMap[s]&&accMap[s][r])||0;const m=kb+rowSemi[r]+((av===1||av===-1)?av:0); hist[((m%12)+12)%12]++; density[bar]+=1; noteCount++ }
       }
     }
     const prec=Array.isArray(t.prec)?t.prec:[];
@@ -300,7 +303,7 @@ function analyzeMidi(proj){
       const step=Number.isFinite(u)?Math.floor(u/PREC_U_PER_STEP):0;
       const bar=clamp(Math.floor(step/stepsPerBar),0,bars-1);
       if(isDrum){ density[bar]+=1; drumHits++ }
-      else{ const m=kb+rowSemi[r]; hist[((m%12)+12)%12]++; density[bar]+=1; noteCount++ }
+      else{ const av=(accMap&&accMap[step]&&accMap[step][r])||0;const m=kb+rowSemi[r]+((av===1||av===-1)?av:0); hist[((m%12)+12)%12]++; density[bar]+=1; noteCount++ }
     }
   }
   for(let i=0;i<bars;i++)density[i]=density[i]/meterN;   // 归一成"每拍音符数"（与拍号无关，便于跨工程比较）

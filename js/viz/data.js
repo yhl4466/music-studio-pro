@@ -90,6 +90,28 @@ function normalizePat(src,S,rows){
   }
   return out;
 }
+/* 升降号（♯/♭）：主应用 serializeProject() 写的稀疏表 {[step]:{[row]:-1|0|1}}。
+   只收 ±1（0 = 无标记，不落键，保持稀疏），且 step 必须落在 [0,steps)、row 落在 [0,该轨行数)：
+   越界、非数字、非法列（非对象）一律丢弃。旧工程没有这个字段 → 返回 {}（= 全自然音）。 */
+function normalizeAcc(src,t,S){
+  const out={};
+  if(!src||typeof src!=='object'||Array.isArray(src))return out;
+  const rows=trackRows(t);
+  for(const k in src){
+    const step=Math.round(num(k,NaN));
+    if(!Number.isFinite(step)||step<0||step>=S)continue;
+    const col=src[k];
+    if(!col||typeof col!=='object'||Array.isArray(col))continue;
+    for(const rk in col){
+      const row=Math.round(num(rk,NaN));
+      if(!Number.isFinite(row)||row<0||row>=rows)continue;
+      const v=num(col[rk],0);
+      if(v!==1&&v!==-1)continue;
+      (out[step]||(out[step]={}))[row]=v;
+    }
+  }
+  return out;
+}
 function normalizePrec(src,t,kU){
   const out=[];
   if(!Array.isArray(src))return out;
@@ -140,6 +162,7 @@ function buildTrack(d,i,used,S){
   // 音符矩阵必须显式重建：ensurePatSizes() 只在尺寸不符时新建零矩阵，
   // 若这里留空数组，音符会被静默清空（离线渲染将得到一段无声的缓冲）。
   t.pat=normalizePat(d.pat,S,trackRows(t));
+  t.acc=normalizeAcc(d.acc,t,S);                          // 升降号：稀疏表，只认 ±1 且不越界（旧档无此字段 → {}）
   t.steps=S;
   t.id=(typeof d.id==='string'&&d.id&&!used.has(d.id))?d.id:('viz'+i+Math.random().toString(36).slice(2,7));
   used.add(t.id);
