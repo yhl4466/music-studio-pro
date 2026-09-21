@@ -202,9 +202,29 @@ function bindWindowScroll(){
   if(_winBound||!VIRTUAL)return;
   const tl=tlEl();if(!tl)return;
   _winBound=true;
+  /* 窗口同步的调度（B 方案）：原来用 `if(_winRaf) return;` 做“一帧一次”的闩锁 ——
+     一旦那一帧的 rAF 回调被浏览器丢掉（页面不可见时 rAF 会被暂停、标签页被节流、合成器忙），
+     闩锁就永远解不开，之后所有 scroll 同步都被吞掉：池停在旧范围 → 视口里那片没有 DOM 格子 →
+     看上去就是“网格线整片消失”。改成 pending 标记 + 定时兜底，并且在跨度超过一屏时直接同步。 */
+  let _winPending=false,_winTimer=0;
+  const runSync=force=>{
+    _winPending=false;
+    if(_winRaf){try{cancelAnimationFrame(_winRaf)}catch(e){}_winRaf=0}
+    if(_winTimer){clearTimeout(_winTimer);_winTimer=0}
+    try{syncWindowNow(!!force)}catch(e){}
+  };
   const kick=force=>{
-    if(_winRaf)return;
-    _winRaf=requestAnimationFrame(()=>{_winRaf=0;syncWindowNow(!!force)}); // 一帧最多一次窗口同步
+    if(force){runSync(true);return}                    // 强制（resize / 曲长变化）：不排队，立刻同步
+    const c=proj._uiCache;
+    if(c&&c.win){                                      // 滚动跨度超过一屏（拖滚动条/跳转）→ 等一帧反而会先显示空白
+      const cw=effStepWidth()||CELL_MIN_PX;
+      const span=Math.abs(windowFrom(c.win.n)-c.win.from);
+      if(span>c.win.n){runSync(false);return}
+    }
+    if(_winPending)return;                             // 同一帧内多次 scroll 合并成一次
+    _winPending=true;
+    _winRaf=requestAnimationFrame(()=>runSync(false));
+    _winTimer=setTimeout(()=>{if(_winPending)runSync(false)},150); // 兜底：rAF 被丢/被暂停也能补上
   };
   tl.addEventListener('scroll',()=>kick(false),{passive:true});
   window.addEventListener('resize',()=>kick(true));

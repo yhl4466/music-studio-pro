@@ -344,7 +344,18 @@ input.numTickAlt{animation:numTickSoftAlt var(--dur-fast) var(--ease-out)}
       短曲放大到 cw=30px 时也不会显得只有一根发丝。 */
 .pc.sel{background:rgba(255,208,90,.13);z-index:2}
 .mel .pc.sel,.drum .pc.sel{background:rgba(255,208,90,.13)}
-.tgBody{position:relative}
+/* 网格线兜底（A 方案）：竖线不再只靠 .pc 的 border-right 画 —— 轨道体再加一层竖向网格背景，
+   周期 = --cw、相位 = --labW（首列左缘）、颜色 = --grid-line。
+   不用再加 min-width：#trackList 的每个 .tgroup/.tgBody 本来就被 #tlInner 的 min-width
+   （= labW + stepsN*cw + 32px）撑成“整曲宽度”（基线实测 128 小节时 .tgBody 宽 16474px，
+   而池里的格子只覆盖 2096px），所以这层背景天然铺满整曲 —— 即使虚拟池没渲染到那一片
+   （长曲滚动、池滞后/停摆），那里也仍然有网格线，不会再出现“空白无格”。
+   只画竖线：横线仍由 .pc 的 border-bottom 负责（行数固定、永远全渲染，不存在缺行问题）。 */
+.tgBody{position:relative;
+  background-image:linear-gradient(90deg,var(--grid-line) 0 1px,transparent 1px);
+  background-size:var(--cw) 100%;
+  background-position:var(--labW) 0;
+  background-repeat:repeat}
 .tgBody::before{
   /* top/bottom 与 timeline.css 的 .tgBody{padding:2px 0 6px} 对齐，让竖带正好覆盖整片琴键行 */
   content:'';position:absolute;top:2px;bottom:6px;display:none;pointer-events:none;z-index:1;

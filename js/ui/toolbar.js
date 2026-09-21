@@ -15,7 +15,7 @@ import { serializeProject, applyProjectData, autosaveNow, loadAutosave, quickSav
 import { shareLink, loadShareFromHash } from '../io/share.js';
 import { exportMidiUI, importMidiUI } from '../io/midi.js';
 import { exportWavUI } from '../io/wav.js';
-import { structural, paintAll, relabelRows, zoomAround, zoomFitWindow, autoFitZoom, setDrawTool, drawTool, clearRegionUI, copyRegion, pasteRegion, updClipUI, updateRhythmUI, applyQuantize, updateQuantEst, convertRegionRhythm, cellPaintStart, cellPaintMove, cellPaintEnd, previewDrum, regionSel } from './timeline.js';
+import { structural, paintAll, relabelRows, zoomAround, zoomFitWindow, autoFitZoom, setDrawTool, drawTool, clearRegionUI, copyRegion, pasteRegion, updClipUI, updateRhythmUI, applyQuantize, updateQuantEst, convertRegionRhythm, cellPaintStart, cellPaintMove, cellPaintEnd, previewDrum, regionSel, syncWindowNow } from './timeline.js';
 import { setTab, renderInspector, randomizePatch } from './sidebar.js';
 import { updateSeekUI, seekToStep, bindScrubber, followOn, setFollowOn } from './seek.js';
 import { renderPiano, sizePianoKeys, alignPianoToTrack, pianoOctMove, onKey, onKeyUp, bindPiano } from './piano.js';
@@ -120,6 +120,10 @@ export function bindTopControls(){
     if(Play.playing){stopPlay();setTimeout(togglePlay,60)}
     if(Math.round(proj.steps/SPB())>=32)autoFitZoom(); // 长曲：先按需缩小视图，再统一重绘一次
     structural(true);renderInspector();rebuildEvents();markDirtyUI();
+    /* 曲长变了之后显式再同步一次虚拟窗口（C 方案）：structural(true) 已经按新 proj.steps 重算池
+       （--poolN/--poolOff 都会更新），但“窗口起点”是按当前 scrollLeft 算的；这里强制同步一次，
+       保证加/减小节后池一定与视口对齐，不会出现“新小节那片没有 DOM 格子 → 看着没网格线”。 */
+    try{syncWindowNow(true)}catch(e){}
     commitEdit();
   };
   function syncBarsUI(){
