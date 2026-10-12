@@ -165,10 +165,13 @@ function render(){
     const title=titleOf();
     features.title=title;                      // 规格要求：曲名编辑同步到 features.title（cover/fingerprint/sharecard 都会读它）
     if(kind==='sharecard'){
+      let si=null;
+      try{ if(typeof hooks.getShareInfo==='function')si=hooks.getShareInfo() }catch(e){}
       info=generateShareCard(el.canvas,features,{
         title, seed,
         bpm:bpmOf(),
-        shareUrl:shareUrlOf()
+        shareUrl:shareUrlOf(),
+        shareInfo:si                                   // 卡片据此如实说明二维码里到底有没有工程数据
       });
     }else if(kind==='fingerprint'){
       info=generateFingerprint(el.canvas,features,seed,{title});
@@ -286,7 +289,8 @@ function exportCanvas(force2x){
   if(scale===1||typeof document==='undefined'||typeof document.createElement!=='function')return el.canvas;
   const off=document.createElement('canvas');
   try{
-    if(kind==='sharecard')generateShareCard(off,features,{scale:2,title:titleOf(),seed,bpm:bpmOf(),shareUrl:shareUrlOf()});
+    if(kind==='sharecard')generateShareCard(off,features,{scale:2,title:titleOf(),seed,bpm:bpmOf(),shareUrl:shareUrlOf(),
+      shareInfo:(typeof hooks.getShareInfo==='function')?(hooks.getShareInfo()||null):null});
     else if(kind==='fingerprint')generateFingerprint(off,features,seed,{scale:2,title:titleOf()});
     else generateCover(off,features,style,seed,{scale:2,title:titleOf()});
     return off;

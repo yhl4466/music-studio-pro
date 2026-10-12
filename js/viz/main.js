@@ -13,6 +13,8 @@ import { createFeatures } from './features.js';   // FEAT-V2/T1：频域特征/�
 import { analyze } from './analyzer.js';          // FEAT-V4/T2：整曲离线分析（V4 封面/指纹的数据源，纯计算）
 import { bindCoverUI, invalidateCoverFeatures } from './coverUI.js';  // FEAT-V4/T3.5：封面预览弹窗（只画图与下载，无业务逻辑）
 import * as qrMod from './qrcode.js';        // 真·二维码编码器（分享卡片用；__vz.qr.selfTest() 可自检）
+import { buildShareHash } from '../io/share.js';        // 复用主应用的压缩编码（deflate/LZSS 择优）
+import { resolveSiteBase, buildShareUrl, siteSourceLabel, readSiteOverride, writeSiteOverride } from '../io/siteUrl.js';  // 对外地址解析（不用 location.origin）
 /* 渲染器自注册：该模块顶层调用 registry.register()，不再形成循环导入 */
 import './renderers/waveform.js';
 import './renderers/spectrogram.js';
@@ -672,17 +674,83 @@ function boot(){
   if(seek)seek.disabled=true;
   bindTransportUI();
   bindLengthUI();
-  /* FEAT-V4/T3.5：封面预览弹窗。用钩子把 T2 的分析入口注入，避免 main ⇄ coverUI 循环 import：
-     ensureFeatures 走完整流程（含全曲重渲染询问/进度/取消），getFeatures 让第二次点击直接复用结果。 */
+}
+
+/* =========================================================================
+   分享卡片上的链接 / 二维码
+   -------------------------------------------------------------------------
+   两个曾经同时存在的致命问题：
+     ① 用了 location.origin → 本地起服务时印出 http://localhost:8123/...，别人打不开；
+     ② 卡片文案写"扫码即还原工程"，但传给卡片的是**剥掉 hash 的裸地址**，
+        二维码里根本没有工程数据，从来没有"还原"过。
+   现在：
+     · 基址走 io/siteUrl 的对外地址（手填 > meta/canonical > 非本机的当前地址 > 线上兜底）；
+     · 把工程数据一起编码进 hash（复用主应用的 deflate/LZSS 择优）；
+     · 二维码容量只有 213 字节（v10-M），而实测最小工程压完也有 851 字节 ——
+       所以**装不下是常态**。装不下就退化成"只指向应用"，并由卡片文案如实说明，
+       不再谎称扫码能还原谱子。
+   ========================================================================= */
+const QR_BYTE_LIMIT=qrMod.QR_MAX_BYTES;   // 213
+let shareInfoCache=null;                  // {url,fullUrl,dataBytes,fitsQR,siteFrom,codec,kb}
+let shareInfoBusy=false;
+/** 同步取"当前可用的分享链接"。数据未就绪时先返回不含数据的应用地址（绝不再回落到 localhost） */
+function shareUrlForCard(){
+  if(shareInfoCache&&shareInfoCache.url)return shareInfoCache.url;
+  return buildShareUrl('');
+}
+/** 异步算出"带工程数据"的分享链接与二维码适配情况 */
+async function refreshShareInfo(){
+  if(shareInfoBusy)return shareInfoCache;
+  /* 工程还没载入时不能去序列化（serializeProject 会读 proj.tracks 并 map）——
+     那时先给出"只指向应用"的链接，等数据就绪后再算完整版。 */
+  if(!proj||!Array.isArray(proj.tracks)||!proj.tracks.length){
+    shareInfoCache={url:buildShareUrl(''),fullUrl:'',dataBytes:0,fitsQR:false,
+      siteFrom:resolveSiteBase().from,siteLabel:siteSourceLabel(resolveSiteBase().from),
+      codec:'',kb:0,limit:QR_BYTE_LIMIT,notReady:true};
+    return shareInfoCache;
+  }
+  shareInfoBusy=true;
+  try{
+    const base=resolveSiteBase();
+    const h=await buildShareHash();
+    const fullUrl=buildShareUrl(h.hash);
+    const dataBytes=h.hash.length;                        // 含 '#' 的字符数（hash 基本是 ASCII，≈字节数）
+    const fitsQR=(dataBytes<=QR_BYTE_LIMIT);
+    const url=fitsQR?fullUrl:buildShareUrl('');            // 装不下就只印应用地址，绝不印一个扫不开的码
+    shareInfoCache={url,fullUrl,dataBytes,fitsQR,siteFrom:base.from,siteLabel:siteSourceLabel(base.from),
+      codec:h.codec,kb:h.kb,limit:QR_BYTE_LIMIT};
+  }catch(e){
+    shareInfoCache={url:buildShareUrl(''),fullUrl:'',dataBytes:0,fitsQR:false,
+      siteFrom:'error',siteLabel:'解析失败',codec:'',kb:0,limit:QR_BYTE_LIMIT};
+  }finally{
+    shareInfoBusy=false;
+  }
+  return shareInfoCache;
+}
+
+/* FEAT-V4/T3.5：封面预览弹窗。用钩子把 T2 的分析入口注入，避免 main ⇄ coverUI 循环 import：
+   ensureFeatures 走完整流程（含全曲重渲染询问/进度/取消），getFeatures 让第二次点击直接复用结果。 */
+function bindCoverHooks(){
   bindCoverUI({
     ensureFeatures:(o)=>analyzeProject(o),     // coverUI 会传 {forceFull:true}：封面强制整曲
     getFeatures:()=>lastFeatures,
     getTitle:()=>(proj&&proj.name)||'未命名工程',
-    /* FEAT-V6/T1：分享卡片要印 BPM（FeatureObject 里没有这项）与非 hash 的分享链接；
-       入口持有 proj 与 location，所以由这里注入，coverUI 不 import data/io。 */
     getBpm:()=>(proj&&isFinite(+proj.bpm))?Math.round(+proj.bpm):0,
-    getShareUrl:()=>{ try{ return location.origin+location.pathname }catch(e){ return '' } }
+    /* FEAT-V6/T1：分享卡片要印 BPM（FeatureObject 里没有这项）与可用的分享链接；
+       入口持有 proj 与 location，所以由这里注入，coverUI 不 import data/io。
+
+       ⚠ 这里**不能用 location.origin**：本地起服务时它是 localhost，
+       卡片二维码/链接印出去别人根本打不开（实测用户反馈的致命问题）。
+       改用 io/siteUrl 解析「对外地址」：手填设置 > meta/canonical 声明 >
+       当前地址（仅当不是内网/本机）> 默认线上地址。
+       同时把**工程数据一起编码进 hash**（能装下就装）：装得下时扫码直接还原工程，
+       装不下时只指向应用本身 —— 由卡片文案如实说明是哪一种，不再谎称"扫码即还原"。 */
+    getShareUrl:()=>{ try{ return shareUrlForCard() }catch(e){ return '' } },
+    getShareInfo:()=>shareInfoCache
   });
+}
+/* 封面弹窗之后继续 boot 的其余接线（拆出来只是为了让上面这段钩子独立可读） */
+function bootAfterCoverUI(){
   setUI({renderParams});                   // 注入参数面板钩子（registry 不依赖 DOM）
   renderPicker();                          // 用注册表填充渲染器下拉
   /* 渲染器切换：V1 只有一项下拉时漏了这条监听，导致选中项改了却不换渲染器。
@@ -703,9 +771,7 @@ function boot(){
   if(cv)cv.addEventListener('animationend',e=>{ if(e.animationName==='fadeIn')cv.classList.remove('fadeIn') });
   raf=requestAnimationFrame(frame);
   void initData();
-}
-
-/* ---------- 预渲染进度条 / 状态灯（底部 #vzRenderBar） ---------- */
+}/* ---------- 预渲染进度条 / 状态灯（底部 #vzRenderBar） ---------- */
 function setBar(pct,label){
   const p=clamp(Number(pct)||0,0,100);
   if(renderFill){ renderFill.style.width=p.toFixed(1)+'%'; renderFill.style.background='' }
@@ -812,6 +878,7 @@ function bindLengthUI(){
   const rec=bindMenu(setBtn,setMenu);
   bindSelectPulse(lenSel);          // 批 C 补丁 2：渲染长度下拉的点击微反馈
   bindSelectPulse(pick);            // 渲染器下拉同理
+  bindSiteUrlUI();                  // 分享地址设置（见下）
   if(document.addEventListener)document.addEventListener('pointerdown',e=>{
     if(!menus.length)return;
     for(const m of menus){ if(m.menu.contains(e.target)||m.btn.contains(e.target))return }
@@ -841,6 +908,45 @@ function bindLengthUI(){
   void rec;
 }
 
+/* ---------- 分享地址设置（forks / 自建部署）----------
+   分享卡片上的二维码必须是**别人点得开**的地址。默认走 index.html 里的 canonical/meta 声明
+   （= 本仓库的线上地址），但别人 fork 到自己域名后需要能改。这里给一个输入框，
+   存 localStorage（mpSiteUrl），改完立即重算分享信息并刷新卡片。
+   在 localhost 上打开时也靠这个纠正 —— 否则卡片会印出 localhost。 */
+function bindSiteUrlUI(){
+  const inp=$('#vzSiteUrl'),save=$('#vzSiteSave'),reset=$('#vzSiteReset'),hintEl=$('#vzSiteHint');
+  if(!inp)return;
+  const paint=()=>{
+    const b=resolveSiteBase();
+    inp.value=readSiteOverride()||'';
+    inp.placeholder=b.url;
+    if(hintEl){
+      const local=(()=>{try{return location.hostname==='localhost'||location.hostname==='127.0.0.1'}catch(e){return false}})();
+      hintEl.textContent='当前生效：'+b.url+'（'+siteSourceLabel(b.from)+'）'
+        +(local?'　⚠ 你在本机访问，已自动改用对外地址':'');
+    }
+  };
+  paint();
+  save.addEventListener('click',()=>{
+    const v=inp.value.trim();
+    if(!v){ setHint('分享地址不能为空','例如 https://example.com/music-studio-pro/'); return }
+    if(!writeSiteOverride(v)){ setHint('保存失败','浏览器存储不可用（隐私模式？）'); return }
+    const b=resolveSiteBase();
+    /* 可视化页没有主应用那套 toast 容器，反馈统一走底部提示行。
+       setHintInfo(status,key,detail,holdMs) —— 4 个参数，第三个才是详情。 */
+    setHintInfo('分享地址已保存',b.url,'卡片二维码将使用该地址',3000);
+    paint();
+    void refreshShareInfo();
+  });
+  reset.addEventListener('click',()=>{
+    writeSiteOverride('');
+    const b=resolveSiteBase();
+    setHintInfo('已恢复默认分享地址',b.url,'',3000);
+    paint();
+    void refreshShareInfo();
+  });
+}
+
 /* ---------- 第 2 步：数据装载（hash 优先 → localStorage.vizProject）→ 第 3/4 步：预渲染并载入 ---------- */
 let dataOk=false;
 async function initData(){
@@ -864,6 +970,9 @@ async function initData(){
   revealCanvas();                     // 画布入场（批 A 任务 7）：数据就绪这一刻淡入 + 轻推镜
   if(pred)setHint('渲染长度：'+lenLabel(),pred,info.steps?('工程 '+info.steps+' 步'):'');
   await renderAndLoad(p,lenOpts());
+  /* 工程数据就绪后再算分享链接（要把工程编码进去，所以必须等载入完成）。
+     不阻塞渲染：算完刷新一下卡片文案/二维码即可。 */
+  void refreshShareInfo();
 }
 
 /* ---------- rAF 主循环：全屏重绘，保证切换渲染器无残影 ---------- */
@@ -944,8 +1053,18 @@ function frame(ts){
   }
 }
 
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});
-else boot();
+/* 启动：boot 负责建立视图/渲染器/UI 接线，随后接上封面弹窗钩子与数据装载。
+   （拆成三段只是因为分享卡片那段钩子注释较长，执行顺序必须保持 boot → hooks → UI → 数据。） */
+/* 启动链：boot 建视图/渲染器/UI 接线 → 封面弹窗钩子 → 其余 UI 接线与数据装载。
+   ⚠ 三者顺序不能变。拆成三段是因为分享卡片那段钩子注释较长；
+   把它们的定义误写进 boot() 内部会导致整个模块语法错误（实测踩过，整页白屏）。 */
+function startViz(){
+  boot();
+  bindCoverHooks();
+  bootAfterCoverUI();
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{ try{ startViz() }catch(e){ console.error('[viz] 启动失败',e); throw e } },{once:true});
+else { try{ startViz() }catch(e){ console.error('[viz] 启动失败',e); throw e } }
 
 /* 自检句柄：Console 里确认循环 / 尺寸 / 数据层 / 播放状态（第 4 步起含 transport） */
 window.__vz={view,list,current,select,register,data:dataMod,transport,registry:{register,list,select,current},

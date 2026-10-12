@@ -1,6 +1,8 @@
 /* [share.js] source: Pro.html 2351-2494（分享链接：deflate/LZSS 压缩 + Base64 + URL hash） */
 import { serializeProject, applyProjectData } from './project.js';
+import { proj } from '../core/state.js';
 import { toast } from '../core/util.js';
+import { resolveSiteBase, buildShareUrl } from './siteUrl.js';
 
 /* =========================================================================
    6c. 分享链接（压缩 JSON → Base64 → URL hash）
@@ -94,25 +96,40 @@ export function lzDecode(bytes){
 }
 export async function shareLink(){
   try{
-    const j=serializeProject();
-    // 两种压缩都算一次，选更短：deflate（现代浏览器，需异步解压） vs 纯 JS LZSS（全兼容、同步解码）
-    let best='#s='+btoa(unescape(encodeURIComponent(j))); // 基线：不压缩
-    let label='未压缩';
-    try{
-      if(typeof CompressionStream!=='undefined'){
-        const z=await deflateStr(j);
-        if(z.length<best.length){best='#z='+z;label='deflate';}
-      }
-    }catch(e){}
-    try{
-      const lz=bytesToB64(lzEncode(j));
-      if(lz.length<best.length){best='#l='+lz;label='LZSS';}
-    }catch(e){}
-    const url=location.href.split('#')[0]+best; // best 自带 '#' 前缀（'#s='/'#z='/'#l='），此处不再补 '#'，否则 URL 变成 base+"##l=…" 导致分享链接打不开
-    const kb=((best.length-1)/1024).toFixed(1);  // 真实 hash 长度（不含前缀 '#'）；不能用 url.split('#')[1]，多重 '#' 时会取到空串显示 0.0
+    const h=await buildShareHash();
+    const url=buildShareUrl(h.hash);
+    const kb=(h.hash.length/1024).toFixed(1);
     const done=()=>toast('分享链接已复制到剪贴板（约 '+kb+' KB）→ 粘贴到浏览器打开即还原工程，或发给别人。','ok','check');
     copyToClip(url,done);
   }catch(e){toast('分享失败：'+e.message,'err')}
+}
+/**
+ * 只算出分享用 hash（'#s=' / '#z=' / '#l='），不复制、不做 UI ——
+ * 分享卡片要用同一份编码结果去填二维码，所以拆出来复用。
+ * ⚠ 必须先确认工程已载入：serializeProject() 会直接 proj.tracks.map(...)，
+ *   工程为空时抛的是 "Cannot read properties of undefined (reading 'map')" 这种
+ *   完全看不懂的错误（可视化页在数据装载完成前就可能被调用，实测踩到）。
+ * @returns {{hash:string,codec:string,kb:number}}
+ * @throws {Error} 工程尚未载入时抛出可读错误（调用方应 try/catch 并提示用户）
+ */
+export async function buildShareHash(){
+  if(!proj||!Array.isArray(proj.tracks)||!proj.tracks.length)
+    throw new Error('工程还没载入，暂时无法生成分享链接');
+  const j=serializeProject();
+  // 两种压缩都算一次，选更短：deflate（现代浏览器，需异步解压） vs 纯 JS LZSS（全兼容、同步解码）
+  let best='#s='+btoa(unescape(encodeURIComponent(j))); // 基线：不压缩
+  let label='未压缩';
+  try{
+    if(typeof CompressionStream!=='undefined'){
+      const z=await deflateStr(j);
+      if(z.length<best.length){best='#z='+z;label='deflate';}
+    }
+  }catch(e){}
+  try{
+    const lz=bytesToB64(lzEncode(j));
+    if(lz.length<best.length){best='#l='+lz;label='LZSS';}
+  }catch(e){}
+  return {hash:best,codec:label,kb:(best.length-1)/1024};
 }
 export function copyToClip(url,done){
   if(navigator.clipboard&&navigator.clipboard.writeText){

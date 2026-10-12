@@ -268,8 +268,9 @@ function paintSpectro(ctx,pal,bars){
   ctx.fill();
   ctx.restore();
 }
-/** 底部信息区：左半关键数据（2 列 × 3 行），右半 URL + 真二维码 */
-function paintBottom(ctx,pal,info){
+/** 底部信息区：左半关键数据（2 列 × 3 行），右半 URL + 真二维码
+ *  @param {object|null} si 分享信息（{fitsQR,kb,dataBytes,limit}），决定二维码文案的措辞 */
+function paintBottom(ctx,pal,info,shareInfo){
   const y0=TOP_H+MID_H;
   ctx.fillStyle='rgba(0,0,0,0.28)';
   ctx.fillRect(0,y0,CARD_W,BOT_H);
@@ -298,23 +299,38 @@ function paintBottom(ctx,pal,info){
     ctx.fillStyle=pal.primary;
     ctx.fillText(ellipsize(ctx,rows[i][1],colW-24),cx2,cy2+26);
   }
-  /* —— 右：URL 文本 + 真二维码 —— */
+  /* —— 右：URL 文本 + 真二维码 ——
+     文案必须**如实**说明二维码里到底有什么。历史教训有两层：
+       ① 原来印的是 location.origin，本地起服务时是 localhost，别人扫了打不开；
+       ② 原来写"扫码即还原工程"，但传给卡片的 url 是剥掉 hash 的裸地址，
+          二维码里根本没有工程数据 —— 从来没有"还原"过。
+     现在由 opts.shareInfo 决定文案：装得下工程数据就说"扫码即还原"，
+     装不下（213 字节上限，实测最小工程压完 851 字节，所以是常态）就说清楚
+     "扫码打开可视化页"，并提示用「分享链接」按钮发完整谱子。 */
+  const si=shareInfo||null;
   const qr=QR_SIZE;
   const qx=CARD_W-PAD-qr, qy=y0+(BOT_H-qr)/2;
   const urlX=PAD+COL_W+8, urlW=qx-16-urlX;
   ctx.textAlign='left'; ctx.textBaseline='alphabetic';
-  const lines=[];
   ctx.font='700 13px '+FONT;
   ctx.fillStyle=alpha(pal.accent,0.80);
-  ctx.fillText('扫码打开',urlX,y0+32);
+  ctx.fillText(si&&si.fitsQR?'扫码还原工程':'扫码打开可视化页',urlX,y0+32);
   ctx.font='13px '+MONO;
   ctx.fillStyle=pal.primary;
   const wrap=wrapText(ctx,info.url,urlW,3);
   for(let i=0;i<wrap.length;i++)ctx.fillText(wrap[i],urlX,y0+56+i*19);
-  if(info.hashKB>0){
-    ctx.font='12px '+FONT;
-    ctx.fillStyle=alpha(pal.accent,0.62);
-    ctx.fillText('含分享数据 '+info.hashKB.toFixed(1)+' KB（扫码即还原工程）',urlX,y0+56+wrap.length*19+6);
+  let ny=y0+56+wrap.length*19+6;
+  ctx.font='12px '+FONT;
+  ctx.fillStyle=alpha(pal.accent,0.62);
+  if(si&&si.fitsQR){
+    ctx.fillText('已含工程数据 '+si.kb.toFixed(1)+' KB，扫码即还原谱子',urlX,ny);
+  }else if(si&&si.dataBytes>0){
+    /* 装不下：给出真实数字与替代做法，别让人以为扫了就有谱子 */
+    ctx.fillText('（谱子数据 '+si.kb.toFixed(1)+' KB，超出二维码容量 '+si.limit+' 字节）',urlX,ny);ny+=17;
+    ctx.fillStyle=alpha(pal.accent,0.5);
+    ctx.fillText('发谱子请用主应用「分享链接」按钮',urlX,ny);
+  }else if(info.hashKB>0){
+    ctx.fillText('含分享数据 '+info.hashKB.toFixed(1)+' KB',urlX,ny);
   }
   info.qr=drawQR(ctx,qx,qy,qr,info.url,pal);
 }
@@ -421,7 +437,7 @@ export function generateShareCard(canvas,features,opts={}){
   paintWave(ctx,pal,env);
   paintSpectro(ctx,pal,spectroBars(f));
   paintTopBar(ctx,f,pal,opts,info);
-  paintBottom(ctx,pal,info);
+  paintBottom(ctx,pal,info,opts.shareInfo||null);
 
   return {width:CARD_W,height:CARD_H,scale,palette:pal,style,
           duration:info.duration,bpm:info.bpm,keyName:info.keyName,notes:info.notes,

@@ -122,6 +122,21 @@ label.vz-lab>.vz-select{font-size:var(--fs-body)}
 .vz-mi.on{color:var(--acc)}
 .vz-hdItem{cursor:pointer;gap:8px}
 .vz-menuRight{min-width:210px}
+/* 分享地址设置（设置菜单内）：分隔线 + 输入框 + 两个小按钮。
+   与 .vz-select 同高同圆角，保持设置菜单里的控件观感一致。 */
+.vz-menuDiv{height:1px;margin:6px 8px;background:var(--hair)}
+.vz-menuRow{display:flex;gap:6px;padding:2px 8px 6px}
+.vz-menuRow .vz-mi{justify-content:center;background:var(--ctl-bg);border:1px solid var(--line2);flex:1}
+.vz-menuRow .vz-mi:hover{border-color:var(--sig);color:var(--sig)}
+.vz-inp{
+  flex:1;min-width:0;height:var(--h);padding:0 8px;border-radius:var(--r-xs);
+  border:1px solid var(--line2);background:var(--ctl-bg);color:var(--txt);
+  font-size:var(--fs-micro);font-family:inherit;letter-spacing:0;
+  transition:border-color var(--dur-fast) var(--ease-out)
+}
+.vz-inp:hover{border-color:var(--sig)}
+.vz-inp:focus{outline:none;border-color:var(--sig);box-shadow:0 0 0 1px var(--sig) inset}
+.vz-inp::placeholder{color:var(--dim)}
 /* 下拉（任务 4）：与主应用 .sel/.miniSel 同款 —— 32 高、appearance:none、自绘三角（纯 CSS） */
 .vz-select{
   flex:none;height:var(--h);padding:0 24px 0 8px;border-radius:var(--r-xs);

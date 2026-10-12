@@ -6,6 +6,10 @@
 <!-- 跨文档 View Transition 的 opt-in 双保险（批 C 诊断）：与 css/theme.css 的 @view-transition{navigation:auto}
      等价、互相兼容；这是 W3C 推荐的早期写法，Chromium 111+ 就认，旧浏览器忽略本行不会报错 -->
 <meta name="view-transition" content="same-origin">
+<!-- 对外访问地址：分享链接与分享卡片二维码用它拼，**不能用 location.origin**——
+     本地起服务时那是 localhost，别人扫了/点了都打不开。自行部署请改这两行。 -->
+<link rel="canonical" href="https://yhl4466.github.io/music-studio-pro/visualizer.html">
+<meta name="mp-share-base" content="https://yhl4466.github.io/music-studio-pro/">
 <title>音乐可视化 · 智能音乐工坊 PRO</title>
 <link rel="stylesheet" href="./css/theme.css">
 <link rel="stylesheet" href="./css/viz.css">
@@ -72,6 +76,18 @@
         </label>
       </div>
       <div class="vz-menuHint">预览用 30 秒足够；切到「全曲」后才能分析整首（封面 / 指纹）。</div>
+      <div class="vz-menuDiv" aria-hidden="true"></div>
+      <div class="vz-menuItem">
+        <label class="vz-menuLab">分享地址
+          <input class="vz-inp" id="vzSiteUrl" type="url" inputmode="url" spellcheck="false"
+            placeholder="https://你的域名/项目/" aria-label="分享卡片使用的对外地址">
+        </label>
+      </div>
+      <div class="vz-menuHint" id="vzSiteHint">分享卡片上的二维码与链接用它拼。</div>
+      <div class="vz-menuRow">
+        <button class="vz-mi" id="vzSiteSave" type="button">保存地址</button>
+        <button class="vz-mi" id="vzSiteReset" type="button">恢复默认</button>
+      </div>
     </div>
   </div>
   <button class="vz-btn" id="vzCoverBtn" title="分析整曲并生成专辑封面（预览 / 下载 PNG）">
