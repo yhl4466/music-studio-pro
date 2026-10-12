@@ -61,6 +61,10 @@ function emojiSupported(ch){
 function setNote(text){
   if(el&&el.note)el.note.textContent=text||'';
 }
+/* 单调时钟：优先 performance.now（不受系统时间调整影响），退化到 Date.now */
+function nowMs(){
+  return (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+}
 function safeName(s){
   const t=String(s==null?'':s).replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,' ').trim();
   return (t||'未命名工程').slice(0,40);
@@ -171,10 +175,12 @@ function render(){
     }else{
       info=generateCover(el.canvas,features,style,seed,{title,showTitle:true});
     }
-    const ms=t0?Math.round(((performance.now?performance.now():0)-t0)):0;
+    const ms=t0?Math.round(nowMs()-t0):0;
     const what=(kind==='sharecard')?'分享卡片':((kind==='fingerprint')?'音乐指纹':(STYLE_LABELS[style]||style));
-    setNote(what+' · 种子 '+seed+(ms?(' · '+ms+' ms'):'')+' · '+el.canvas.width+'×'+el.canvas.height+
-            (hd?' · 导出将用 2×':''));
+    /* 明确写出"这只是第 2 步画布绘制"：否则 "2 ms" 与用户实际等待的几十秒形成强烈矛盾，
+       看起来像时间显示错误（实际是两个完全不同的步骤，见 ensureFeatures 的说明）。 */
+    setNote('第 2/2 步：绘制'+what+' · 种子 '+seed+(ms?(' · 画布耗时 '+ms+' ms'):'')+
+            ' · '+el.canvas.width+'×'+el.canvas.height+(hd?' · 导出将用 2×':''));
   }catch(e){
     setNote('生成失败：'+((e&&e.message)||e));
     console.error('[viz-cover-ui] 生成失败',e);
@@ -233,12 +239,20 @@ async function ensureFeatures(){
   if(cached){ features=cached; return cached }        // 入口已有分析结果（例如先在 Console 里跑过 analyze）→ 不重复分析
   if(typeof hooks.ensureFeatures!=='function'){ setNote('封面功能未接线（缺少 ensureFeatures 钩子）'); return null }
   setBtnBusy(true);
-  setNote('正在分析整曲（首次较慢，可用底部取消按钮中止）…');
+  /* 这里必须把"慢在哪一步"说清楚：
+     封面/指纹要**整曲**渲染离线音频（几十秒到几分钟，进度看底部进度条），
+     而画布本身只要几毫秒 —— 旧文案只写"正在分析整曲"，用户看到图片明明是瞬间生成的，
+     就会以为"渲染时间显示"在骗人（实测反馈就是这个）。所以分两步说明，并给出预期。 */
+  const t0=nowMs();
+  setNote('第 1/2 步：渲染整曲音频并分析（这一步最慢，进度见底部进度条；可随时取消）…');
   try{
     /* forceFull：封面是"整曲肖像"，不足整曲时由入口静默做全曲重渲染，不再弹确认框 */
     const f=await hooks.ensureFeatures({forceFull:true});
     if(!f){ setNote('没有可用的分析结果（已取消或工程为空）'); return null }
     features=f;
+    const ms=Math.round(nowMs()-t0);
+    const secs=(f.duration||0).toFixed(1);
+    setNote('第 1/2 步完成：分析 '+secs+' 秒音频，耗时 '+(ms/1000).toFixed(1)+' 秒');
     return f;
   }catch(e){
     setNote('分析失败：'+((e&&e.message)||e));

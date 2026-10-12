@@ -7,13 +7,16 @@
      · 中部 400px：主视觉。背景＝波形（rmsCurve 或 opts.waveformData 归一化后的包络，镜像填充 + 主题色渐变），
                    前景＝稀疏频谱竖线（缩略谱每 8 列采 1 列）
      · 底部 170px：信息区。左 600px＝关键数据（时长/调式/BPM/音符/段落/起音），
-                   右 600px＝URL 文本（自动换行）+ 16×16 装饰性"二维码风格"方块图案
-   关于"二维码"：**不引入任何外部库**，也不假装可扫——只画 16×16 的确定性方块图案（带三个定位角），
-   图案由 mulberry32(seed) 生成：同一份 (features, seed, opts) 必出同一张图（与 cover.js 的确定性要求一致）。
-   依赖：../core/util.js（clamp / mulberry32）、./cover.js（derivePalette）。 */
+                   右 600px＝URL 文本（自动换行）+ **真·可扫描二维码**
+   关于二维码：由 ./qrcode.js 现场编码（纯 JS 实现，纠错等级 M，版本 1–10 自动选），
+    编码对象就是卡片上印的那个分享链接 —— 扫码即还原工程。
+    链接超过 213 字节（v10-M 容量上限）时**退化为一小块"链接过长"提示，而不是画假码**：
+    印一个扫不出来的图案比留白更误导。二维码不参与 seed 随机（它是链接的确定函数）。
+    依赖：../core/util.js（clamp / mulberry32）、./cover.js（derivePalette）、./qrcode.js（encodeQR）。 */
 
 import { clamp, mulberry32 } from '../core/util.js';
 import { derivePalette } from './cover.js';
+import { encodeQR } from './qrcode.js';
 
 /* ---------- 常量 ---------- */
 export const CARD_W=1200;
@@ -24,9 +27,11 @@ const BOT_H=CARD_H-TOP_H-MID_H; // 信息区（170）
 const PAD=32;                   // 左右留白
 const COL_W=600;                // 信息区左右各 600px（规格）
 const SPECTRO_STEP=8;           // 频谱竖线抽样步长（每 8 列采 1 列）
-const QR_N=16;                  // 装饰图案 16×16
-const QR_CELL=7;                // 每格 7 逻辑像素 → 图案 112×112
-const QR_P=0.46;                // 非定位角区域的填格概率
+/* 二维码方框边长上限（逻辑像素）。信息区高 BOT_H=170，上下各留 3px。
+   注意：**实际方框由模块数反推**（drawQR 里取整数 cell），所以这里只是上限。
+   v4（33 模块）在 164px 上限下取到 cell=4 → 方框 164×164；v10（57 模块）取 cell=2 → 162×162。 */
+const QR_SIZE=BOT_H-6;
+const QR_QUIET=4;               // 静默区模块数（规范要求 ≥4）
 const FONT='"Segoe UI","Microsoft YaHei",system-ui,sans-serif';
 const MONO='ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
 
@@ -263,7 +268,7 @@ function paintSpectro(ctx,pal,bars){
   ctx.fill();
   ctx.restore();
 }
-/** 底部信息区：左半关键数据（2 列 × 3 行），右半 URL + 装饰图案 */
+/** 底部信息区：左半关键数据（2 列 × 3 行），右半 URL + 真二维码 */
 function paintBottom(ctx,pal,info){
   const y0=TOP_H+MID_H;
   ctx.fillStyle='rgba(0,0,0,0.28)';
@@ -293,15 +298,15 @@ function paintBottom(ctx,pal,info){
     ctx.fillStyle=pal.primary;
     ctx.fillText(ellipsize(ctx,rows[i][1],colW-24),cx2,cy2+26);
   }
-  /* —— 右：URL 文本 + 装饰性方块图案 —— */
-  const qr=QR_N*QR_CELL;
+  /* —— 右：URL 文本 + 真二维码 —— */
+  const qr=QR_SIZE;
   const qx=CARD_W-PAD-qr, qy=y0+(BOT_H-qr)/2;
   const urlX=PAD+COL_W+8, urlW=qx-16-urlX;
   ctx.textAlign='left'; ctx.textBaseline='alphabetic';
   const lines=[];
   ctx.font='700 13px '+FONT;
   ctx.fillStyle=alpha(pal.accent,0.80);
-  ctx.fillText('在线打开',urlX,y0+32);
+  ctx.fillText('扫码打开',urlX,y0+32);
   ctx.font='13px '+MONO;
   ctx.fillStyle=pal.primary;
   const wrap=wrapText(ctx,info.url,urlW,3);
@@ -309,43 +314,51 @@ function paintBottom(ctx,pal,info){
   if(info.hashKB>0){
     ctx.font='12px '+FONT;
     ctx.fillStyle=alpha(pal.accent,0.62);
-    ctx.fillText('含分享数据 '+info.hashKB.toFixed(1)+' KB（打开链接即还原工程）',urlX,y0+56+wrap.length*19+6);
+    ctx.fillText('含分享数据 '+info.hashKB.toFixed(1)+' KB（扫码即还原工程）',urlX,y0+56+wrap.length*19+6);
   }
-  drawFakeQR(ctx,qx,qy,qr,info.patternSeed,pal);
+  info.qr=drawQR(ctx,qx,qy,qr,info.url,pal);
 }
-/** 16×16 装饰性"二维码风格"图案：三个定位角 + 确定性随机填格。
-    明确不是二维码（不可扫）：只是让右侧有一块和图面同源的图形锚点。 */
-function drawFakeQR(ctx,x,y,size,seed,pal){
-  const n=QR_N, c=size/n;
-  const rng=mulberry32((seed>>>0)||1);
-  const inEye=(i,j)=>((i<5&&j<5)||(i>=n-5&&j<5)||(i<5&&j>=n-5));
+/** 真·二维码：把 info.url 编码成可扫描的二维码并画进给定方框。
+ *  ⚠ 关键实现约束（踩过坑，别改）：**每模块必须取整数像素**。
+ *    实测同一份正确编码，3px/模块 与 4px/模块 都能被 jsQR 解出，
+ *    但 3.366px/模块 必然失败 —— 非整数格宽会让模块边界忽宽忽窄（有的 3px、有的 4px，
+ *    且反复横跳），解码器采样时对不齐格心。所以这里先按可用边长求出**整数** cell，
+ *    再由 cell 反推方框尺寸（方框因此略小于传入的 maxSize，居中放置即可）。
+ *  - 链接超出容量（>213 字节）或编码失败 → 画"链接过长"提示，**绝不画假码**；
+ *  - 白底 + 四周 ≥4 模块静默区（规范要求，缺了明显降低识别率）+ 纯黑模块。 */
+function drawQR(ctx,x,y,maxSize,text,pal){
+  const enc=encodeQR(text);
+  if(!enc){
+    /* 容量不足：画一个明确的"链接过长"提示，而不是假码 */
+    ctx.save();
+    ctx.fillStyle='#ffffff';
+    ctx.fillRect(x,y,maxSize,maxSize);
+    ctx.fillStyle=alpha(pal.primary,0.85);
+    ctx.font='600 12px '+FONT;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('链接过长',x+maxSize/2,y+maxSize/2-8);
+    ctx.fillText('请扫上方文本',x+maxSize/2,y+maxSize/2+8);
+    ctx.restore();
+    return {ok:false,reason:'too-long'};
+  }
+  const n=enc.size;
+  /* 整数 cell：含静默区后必须放得进 maxSize */
+  const cell=Math.max(1,Math.floor(maxSize/(n+QR_QUIET*2)));
+  const size=cell*(n+QR_QUIET*2);                  // 实际方框边长（≤ maxSize）
+  const ox=x+Math.floor((maxSize-size)/2), oy=y+Math.floor((maxSize-size)/2);
   ctx.save();
-  ctx.fillStyle=alpha(pal.bg,0.85);
-  ctx.fillRect(x,y,size,size);
-  /* 数据格 */
-  ctx.fillStyle=pal.primary;
-  for(let j=0;j<n;j++){
-    for(let i=0;i<n;i++){
-      const r=rng();                                   // 每格都抽（保持与 isEye 无关的稳定序列）
-      if(inEye(i,j))continue;
-      if(r<QR_P)ctx.fillRect(x+i*c,y+j*c,c-0.6,c-0.6);
+  ctx.fillStyle='#ffffff';                         // 静默区与底必须高对比，不能用主题色
+  ctx.fillRect(ox,oy,size,size);
+  ctx.fillStyle='#000000';
+  const px0=ox+QR_QUIET*cell, py0=oy+QR_QUIET*cell;
+  for(let r=0;r<n;r++){
+    for(let c=0;c<n;c++){
+      if(enc.modules[r][c]!==1)continue;
+      ctx.fillRect(px0+c*cell,py0+r*cell,cell,cell);   // 整数格 → 无亚像素缝、无宽窄抖动
     }
   }
-  /* 定位角：5×5 的回字（外框 + 中心点） */
-  const eye=(ei,ej)=>{
-    for(let j=0;j<5;j++){
-      for(let i=0;i<5;i++){
-        const d=Math.max(Math.abs(i-2),Math.abs(j-2));
-        if(d!==2&&d!==0)continue;
-        ctx.fillRect(x+(ei+i)*c,y+(ej+j)*c,c-0.6,c-0.6);
-      }
-    }
-  };
-  eye(0,0); eye(n-5,0); eye(0,n-5);
-  ctx.strokeStyle=alpha(pal.accent,0.55);
-  ctx.lineWidth=1.5;
-  ctx.strokeRect(x+0.75,y+0.75,size-1.5,size-1.5);
   ctx.restore();
+  return {ok:true,version:enc.version,mask:enc.mask,size:n,cell,box:size,quiet:QR_QUIET,x:ox,y:oy};
 }
 
 /* =========================================================================
@@ -379,7 +392,7 @@ export function generateShareCard(canvas,features,opts={}){
   const seed=Math.max(0,Math.round(safe(opts.seed,1)));
   const style=(typeof opts.style==='string'&&opts.style)?opts.style:'bricks';   // 规格：复用 bricks 调色板
   const pal=derivePalette(f,seed,style);
-  const rng=mulberry32((seed>>>0)||1);
+  const rng=mulberry32((seed>>>0)||1);      // 仅用于底图纹理（二维码是链接的确定函数，不参与随机）
 
   /* 文案与数据：features 缺失时逐项降级，不留 undefined */
   const rawTitle=(typeof opts.title==='string'&&opts.title.trim())?opts.title
@@ -412,5 +425,8 @@ export function generateShareCard(canvas,features,opts={}){
 
   return {width:CARD_W,height:CARD_H,scale,palette:pal,style,
           duration:info.duration,bpm:info.bpm,keyName:info.keyName,notes:info.notes,
-          segments:info.segments,onsets:info.onsets,url:info.url,patternSeed:seed};
+          segments:info.segments,onsets:info.onsets,url:info.url,patternSeed:seed,
+          /* qr：真二维码的编码结果（{ok,version,mask,size,cell,quiet} 或 {ok:false,reason}）
+             透出来便于自检/单测确认"印的是可扫的真码"，而不是只看画面对不对。 */
+          qr:info.qr||null};
 }
