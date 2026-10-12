@@ -87,7 +87,37 @@ export function applyTrackVolBus(t){
   if(!actx||!actx._tb||!actx._tb[t.id])return;
   actx._tb[t.id].gain.setTargetAtTime(clamp(numSafe(t.vol,.85),0,1.4),actx.currentTime,.02);
 }
+/* =========================================================================
+   音频上下文的"睡眠" —— 页面上第二块持续 CPU（第一块是常驻 rAF，见 ui/viz.js）
+   -------------------------------------------------------------------------
+   实测（headless Edge / 5 秒窗口的 TaskDuration）：
+     · 从未播放过        ：待机 2%
+     · 播放后停止 20 秒后 ：仍 ~25%
+     · suspend() 之后     ：~19%（剩下的主要是主线程的合成/绘制）
+   也就是说只要 AudioContext 处于 running，实时音频线程就会一直跑：
+   2.4 秒的卷积混响 + 延迟反馈环 + 最多 48 个合成声部，即使全是静音也在逐块运算。
+   停播后 3 秒（足够混响/延迟尾巴自然衰减）把上下文挂起，就能把这部分 CPU 归零；
+   下次播放时 ensureAudio() 里的 resume() 会把它唤醒，不需改任何调用点。
+   ========================================================================= */
+let _sleepTimer=0;
+let _audioBusy=false;                    // 由 engine 在播放/停止时更新（避免把 engine 反向依赖进来）
+export function setAudioBusy(v){ _audioBusy=!!v }
+export function cancelAudioSleep(){
+  if(_sleepTimer){clearTimeout(_sleepTimer);_sleepTimer=0}
+}
+export function scheduleAudioSleep(ms){
+  cancelAudioSleep();
+  if(!actx)return;
+  _sleepTimer=setTimeout(()=>{
+    _sleepTimer=0;
+    try{
+      /* 只在"确实没有在播放"时挂起：用户可能在 3 秒内又按下播放 */
+      if(actx&&actx.state==='running'&&!_audioBusy)actx.suspend().catch(()=>{});
+    }catch(e){}
+  },ms==null?3000:ms);
+}
 export function ensureAudio(){
+  cancelAudioSleep();
   if(!actx){
     const AC=window.AudioContext||window.webkitAudioContext;
     if(!AC){toast('当前浏览器不支持 Web Audio','err');return false}

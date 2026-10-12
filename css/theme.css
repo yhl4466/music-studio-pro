@@ -271,21 +271,18 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 
-/* ---------- 方案 A：主题切换瞬间冻结过渡（FEAT-V6/T4） ----------
-   切主题时先给 <html> 加 .theme-transitioning，50ms 后移除。作用：
-   · 避免"旧色 → 新色"之间的过渡动画造成额外中间态重算/重绘；
-   · 让 data-theme 的变化在**一帧内**完成（不给过渡留插值区间）。
-   只禁过渡，不禁动画（进度条/播放光晕仍在跑）。 */
-.theme-transitioning,
-.theme-transitioning *,
-.theme-transitioning *::before,
-.theme-transitioning *::after{transition:none !important}
+/* ---------- 主题切换：不再用通配符冻结过渡 ----------
+   原实现是 `.theme-transitioning, .theme-transitioning *, *::before, *::after{transition:none!important}`。
+   它每切一次主题都要把 `transition` 这条 `!important` 长手属性写到**整棵 DOM**（主页面 2.5 万元素）
+   再撤销一次 —— 实测光这一对"加类 / 删类 + 下一帧"就是 300–450ms 的同步样式重算（长曲更久），
+   而换来的只是"避免颜色插值"这一点观感收益。
+   现在颜色 token 已经全部静态化（不再有逐格 color-mix），`data-theme` 一改，
+   同一次样式重算里就把新颜色算完了，本来也不会留下插值区间，所以这条规则整体删除。 */
 
 /* ---------- 主题切换：一次极短的"亮度脉动"（可选动效，300ms） ----------
    · 只动 opacity（合成层动画，不触发重排/重绘的样式重算）；
    · 用 body::after 固定铺满的极淡信号色薄雾，pointer-events:none 不挡交互；
-   · 由 js/ui/theme.js 在切主题时加 .theme-pulse（300ms 后移除）；
-   · 与 .theme-transitioning 一样，宁可少一次动效也不让切换变卡：这里只有 1 个元素、1 个属性。 */
+   · 由 js/ui/theme.js 在切主题时加 .theme-pulse（300ms 后移除）。 */
 body::after{content:'';position:fixed;inset:0;z-index:400;pointer-events:none;opacity:0;
   background:radial-gradient(120% 80% at 50% 0%,rgba(var(--acc-rgb),.10),transparent 60%)}
 :root.theme-pulse body::after{animation:themePulse var(--dur-base) var(--ease-out) 1}

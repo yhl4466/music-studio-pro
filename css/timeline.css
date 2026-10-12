@@ -31,7 +31,11 @@
 .ruler .rs.bar{background:var(--ctl-bg);border-top:2px solid var(--acc3);border-right:1px solid var(--line);
   color:var(--ruler-bar-tx);
   font:600 9.5px var(--mono);display:flex;align-items:flex-start;justify-content:center;padding-top:1px}
-.ruler .rs.bar span{transform:translateX(calc(var(--cw)/-2 + 2px))}
+/* 小节号左移到"小节线居中"：位移量由 JS 直接写死成像素（原来写的是 calc(var(--cw)/-2 + 2px)）。
+   为什么不再用 --cw：--cw 定义在 #tlInner 上，被它引用的规则会让整棵时间线子树参与
+   "自定义属性变更 → 样式失效重算"，主页面 2.2 万元素下改一次 --cw 要 800–900ms。
+   小节号只是几十个元素，逐格写一个 px 变量远比整片重算便宜。 */
+.ruler .rs.bar span{transform:translateX(var(--barTx,0px))}
 .ruler .rs.beat{background:rgba(var(--txt-rgb),.04);border-right:1px solid var(--line);box-shadow:inset 0 -3px 0 rgba(var(--acc-rgb),.16)}
 .ruler .rs.plain{background:transparent;border-right:1px solid var(--grid-line2)}
 /* 打点：bar 显示小节号 */

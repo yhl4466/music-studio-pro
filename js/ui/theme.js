@@ -6,9 +6,8 @@
      一旦用户点了 3 项中的任一项就被覆盖；
    · 跟随系统：读 prefers-color-scheme（深色 → studio，浅色 → cream），并监听变化实时切换；
    · 六套主题的 CSS 定义全部保留在 css/theme.css（含未在 UI 露出的四套），方便日后扩展。
-   FEAT-V6/T4 配套：切主题时先给 <html> 加 .theme-transitioning（css/theme.css 里定义了
-   `transition:none !important`）再改 data-theme，50ms 后移除 —— 避免过渡动画产生中间态重算；
-   同时 css 侧已把 color-mix 全部静态化成预混 token（原 1.2 万网格格逐格混色 → 切主题同步重算 515ms）。 */
+   性能约定：切主题只做「改 <html> 的 data-theme + 一个 300ms 的 opacity 脉动」，
+   不再往整棵 DOM 上写 `transition:none !important`、也不再强制一次全页回流（原因见下方 _applyTheme 注释）。 */
 
 import { el } from '../core/util.js';
 
@@ -18,29 +17,28 @@ import { el } from '../core/util.js';
    以及挂在 window 上的耗时快照）已在验收后整段删除，本文件不再向 Console 输出任何东西。
    ========================================================================= */
 let _lastTheme=(typeof document!=='undefined'&&document.documentElement.dataset.theme)||'studio';
-let _trTimer=0,_pulseTimer=0;
-/** 方案 A：切换期间冻结所有过渡（50ms 后自动解除，连点也不会堆积定时器） */
-function _freezeTransitions(){
-  const root=document.documentElement;
-  root.classList.add('theme-transitioning');
-  if(_trTimer)clearTimeout(_trTimer);
-  _trTimer=setTimeout(()=>{ _trTimer=0; root.classList.remove('theme-transitioning') },50);
-}
-/** 动效（批 3 第 9 项）：切主题时给 <html> 加 .theme-pulse → body::after 走一次 300ms 亮度脉动。
-    只加/减一个 class、只动一个元素的 opacity；延到下一帧再启动，避免它的强制回流和主题切换挤在同一帧。 */
+let _pulseTimer=0;
+/* =========================================================================
+   主题切换的两项耗时（实测，主页面 2.5 万元素 / 32 小节）：
+   · 旧实现每次切换都加 `.theme-transitioning`（通配符 `transition:none!important`）再撤销 ——
+     两趟整棵 DOM 的同步样式重算，330–450ms，纯观感收益，已整段删除（见 css/theme.css 注释）。
+   · 旧实现 `_pulse()` 里有一句 `void root.offsetWidth` 用来"强制回流重启动画" ——
+     在 2.5 万元素的页面上这一次强制布局本身就是 200–270ms。
+     现在改成"先摘类、下一帧再加类"：同样能重启动画，但一次布局都不强制。
+   ========================================================================= */
 function _pulse(){
   const root=document.documentElement;
   root.classList.remove('theme-pulse');
-  void root.offsetWidth;                    // 强制回流一次：让同一 class 连点也能重启动画
-  root.classList.add('theme-pulse');
-  if(_pulseTimer)clearTimeout(_pulseTimer);
-  _pulseTimer=setTimeout(()=>{ _pulseTimer=0; root.classList.remove('theme-pulse') },320);
+  if(_pulseTimer){clearTimeout(_pulseTimer);_pulseTimer=0}
+  requestAnimationFrame(()=>{
+    root.classList.add('theme-pulse');
+    _pulseTimer=setTimeout(()=>{_pulseTimer=0;root.classList.remove('theme-pulse')},320);
+  });
 }
 function _applyTheme(name){
-  _freezeTransitions();
   document.documentElement.dataset.theme=name;
   _lastTheme=name;
-  requestAnimationFrame(()=>{ _pulse() });
+  _pulse();
 }
 
 /* =========================================================================

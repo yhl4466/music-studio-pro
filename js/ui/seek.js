@@ -3,8 +3,9 @@
 import { proj, actx, A, stepDurNow, fmtPos, stepWidth, effStepWidth, uiZoom } from '../core/state.js';
 import { $, el, clamp, UI, hooks } from '../core/util.js';
 import { Play, stopPlay, tickSched, playheadHooks } from '../audio/engine.js';
-import { ensureAudio, setGate } from '../audio/master.js';
+import { ensureAudio, setGate, setAudioBusy } from '../audio/master.js';
 import { VIRTUAL } from './timeline.js';
+import { wakeViz } from './viz.js';
 
 export let followOn=true; // 播放时自动跟随滚动
 export function setFollowOn(v){followOn=v}
@@ -78,18 +79,33 @@ export function updatePos(step){
   UI.posMain.textContent=fmtPos(step,proj.steps);
   updateSeekUI(step);
 }
-export function visLoop(){
+/* UI 播放指示：**只在播放时驱动**（按需 rAF），停着的时候一帧都不跑。
+   --------------------------------------------------------------------------
+   原来这里是常驻 `requestAnimationFrame(visLoop)`，即使没在播放也每帧空转。
+   实测（headless Edge / 5 秒空闲）：把两个常驻 rAF 循环停掉，主线程忙时从 700ms(17.4%)
+   掉到 36ms(0.9%) —— 也就是说"页面静止但在以 60fps 反复触发渲染"，就是任务管理器里
+   那 20~30% 的 CPU 来源。播放时才需要每帧走播放头，所以改成：
+     · Play.playing 为真时自续期；
+     · 停止/暂停/页面隐藏时退出循环（不再注册下一帧）；
+     · 重新播放/seek 时由 wakeVis() 重新点火。
+   停止路径自己会调 updatePos/clearStepGlow，所以退出前画面已经是终态。 */
+let _visOn = false;
+export function wakeVis() {
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (_visOn) { wakeViz(); return; }
+  _visOn = true;
+  requestAnimationFrame(visLoop);   // 顶栏频谱由 visLoop 内部经 wakeViz 点火
+}
+export function visLoop() {
+  // 停止态 / 后台标签页：不再续期，循环自然结束
+  if (!(Play.playing && actx) || (typeof document !== 'undefined' && document.hidden)) { _visOn = false; return; }
   requestAnimationFrame(visLoop);
-  if(Play.playing&&actx){
-    const now=actx.currentTime;
-    let advanced=false;
-    while(Play.q.length&&Play.q[0].time<=now+0.004){
-      const e=Play.q.shift();
-      Play.uiStep=e.step;advanced=true;
-      glowStepCells(e.step);updatePos(e.step);followScroll(e.step);
-    }
-    // 若 long idle（例如系统卡顿）保持最后状态
-    void advanced;
+  wakeViz();                        // 顶栏频谱只有播放时才有意义，跟着播放头一起跑
+  const now = actx.currentTime;
+  while (Play.q.length && Play.q[0].time <= now + 0.004) {
+    const e = Play.q.shift();
+    Play.uiStep = e.step;
+    glowStepCells(e.step); updatePos(e.step); followScroll(e.step);
   }
 }
 /* ---------- 播放进度条（可拖拽 UI + 标尺同步） ---------- */
@@ -143,13 +159,17 @@ export function scrubSeek(clientX){
   seekToStep(s);
 }
 export function startFromStep(){
-  if(!ensureAudio())return;
+  /* 与 togglePlay 同一套顺序：先立"正在播"标记再 ensureAudio，
+     避免排队中的挂起回调把刚唤醒的上下文又挂起（会变成"有播放头没声音"）。 */
+  setAudioBusy(true);
+  if(!ensureAudio()){setAudioBusy(false);return}
   setGate(true,true);
   Play.nom=actx.currentTime+.06;Play.q=[];Play.uiStep=-1;
   Play.hasStarted=true;   // 已经开始走过带：之后暂停再播放要从当前位置继续，而不是归零
   Play.playing=true;setPlayUI(true);
   tickSched();
   Play.timer=setInterval(tickSched,30);
+  wakeVis();              // 播放头 UI 循环按需点火（见 visLoop 注释）
 }
 export function bindScrubber(){
   const ruler=UI.ruler;
@@ -188,5 +208,10 @@ export function bindScrubber(){
 export function resetGlow(){ lastGlowStep=-1; }
 /* 当前已点亮的播放列（虚拟窗口重排后据此恢复 playCol 高亮；未点亮返回 -1） */
 export function glowCol(){ return lastGlowStep; }
+/* 点火：**所有**进入播放的路径最后都会调 setPlayUI(true)
+   （togglePlay 走它、startFromStep 走它），所以把 wakeVis 挂在这里最稳 ——
+   挂在 updatePos 上会漏掉 togglePlay（它只调 setPlayUI，不调 updatePos），
+   挂在 startFromStep 上则会漏掉主播放按钮。 */
+function setPlayUIAndWake(on){ if(on)wakeVis(); setPlayUI(on); }
 hooks.seek={updateSeekUI,resetGlow,glowCol};
-Object.assign(playheadHooks,{setPlayUI,clearStepGlow,updatePos,glowStepCells,followScroll,visLoop});
+Object.assign(playheadHooks,{setPlayUI:setPlayUIAndWake,clearStepGlow,updatePos,glowStepCells,followScroll,visLoop,wakeVis});

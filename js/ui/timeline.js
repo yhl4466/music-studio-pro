@@ -33,8 +33,11 @@ function rotateWindow(k){
   const n=c.win.n,from=c.win.from;
   if(!k||Math.abs(k)>=n){resetWindow(from+k,n);return}
   const kk=Math.abs(k),right=k>0;
+  /* 批量重贴的共用上下文：本帧点亮的列 + 每轨有没有升降号（见 applyCell 的说明） */
+  const glow=glowStepNow();
   proj.tracks.forEach((t,ti)=>{
     const rows=patRows(t);
+    const ctx={glow,accNo:!trackHasAcc(t)};
     const rowEls=c.poolRowEls[ti]||[];
     for(let r=0;r<rows;r++){
       const pool=c.poolRows[ti]&&c.poolRows[ti][r];
@@ -46,7 +49,7 @@ function rotateWindow(k){
         pool.push.apply(pool,moved);
         for(let i=0;i<moved.length;i++){
           const so=from+i,sn=from+n+i;
-          reindexMove(c,ti,r,moved[i],so,sn);tagCell(moved[i],ti,r,sn);
+          reindexMove(c,ti,r,moved[i],so,sn);tagCell(moved[i],ti,r,sn,ctx);
         }
       }else{
         const moved=pool.splice(n-kk,kk);
@@ -55,7 +58,7 @@ function rotateWindow(k){
         pool.unshift.apply(pool,moved);
         for(let i=0;i<moved.length;i++){
           const so=from+n-kk+i,sn=from-kk+i;
-          reindexMove(c,ti,r,moved[i],so,sn);tagCell(moved[i],ti,r,sn);
+          reindexMove(c,ti,r,moved[i],so,sn);tagCell(moved[i],ti,r,sn,ctx);
         }
       }
     }
@@ -82,12 +85,14 @@ function rotateWindow(k){
 /* 大跨度跳转：不搬节点，只把池内每个格子重新贴到新窗口的步号上 */
 function resetWindow(from,n){
   const c=proj._uiCache;if(!c||!c.poolRows)return;
+  const glow=glowStepNow();
   proj.tracks.forEach((t,ti)=>{
     const rows=patRows(t);
+    const ctx={glow,accNo:!trackHasAcc(t)};
     for(let r=0;r<rows;r++){
       const pool=c.poolRows[ti]&&c.poolRows[ti][r];
       if(!pool)continue;
-      for(let i=0;i<pool.length;i++)tagCell(pool[i],ti,r,from+i);
+      for(let i=0;i<pool.length;i++)tagCell(pool[i],ti,r,from+i,ctx);
     }
   });
   const ruler=UI.ruler;
@@ -99,10 +104,30 @@ function resetWindow(from,n){
 function reshapePool(n){
   const c=proj._uiCache;
   if(!c||!c.win||!c.poolRows)return false;
-  const cw=effStepWidth()||CELL_MIN_PX;
-  const inner=$('#tlInner');
-  if(inner)inner.style.setProperty('--cw',cw+'px');
-  let from=windowFrom(n);
+  /* 这一版的格宽（缩放会先落到 c.win.cw 再调用本函数，所以以缓存值为准） */
+  const cw=c.win.cw||effStepWidth()||CELL_MIN_PX;
+  /* 视口宽走缓存：本函数在扫描/搬移大量格子之后才调用，此时再读 clientWidth
+     会强制把整棵时间线重新布局一遍（就是"未响应"的来源）。真正需要重新量的时机
+     只有 window.resize 与曲长/结构重建，由那两个入口显式刷新缓存。 */
+  c.win.viewW=measuredViewW();
+  let from=windowFrom(n,c.win.viewW);
+  /* 缩放专用快路径：池列数与窗口起点都没变，只是格子变宽/变窄 ——
+     槽位顺序完全没动，重贴每个格子的步号是纯浪费（O(格子数) 的 JS 循环，结果与原样相同）。
+     直接跳到收尾，省掉每次缩放一次的整池重贴。 */
+  const firstPool=c.poolRows[0]&&c.poolRows[0][0];
+  if(n===c.win.n&&from===c.win.from&&firstPool&&firstPool.length===n){
+    if(UI.ruler&&c.rulerCells){
+      const bs=c.rulerCells;
+      for(let i=0;i<bs.length;i++)if(bs[i]._s!==from+i)tagRulerCell(bs[i],from+i);
+    }
+    c.win.n=n;c.win.cw=cw;
+    setWindowIndex(c,from,n);
+    setPoolVars(from,n,cw);
+    try{paintRegionUI()}catch(e){}
+    try{markRhythmUI()}catch(e){}
+    try{hooks.seek?.updateSeekUI?.(Play.step)}catch(e){}
+    return true;
+  }
   proj.tracks.forEach((t,ti)=>{
     const rows=patRows(t);
     for(let r=0;r<rows;r++){
@@ -149,15 +174,14 @@ function reshapePool(n){
   try{hooks.seek?.updateSeekUI?.(Play.step)}catch(e){}
   return true;
 }
-/* 缩放：只改 CSS 变量 --cw + 池列数重塑（不再整体重建 trackList），并保持播放头的视觉锚点 */
+/* 缩放：只重塑池 + 重贴格宽（不再整体重建 trackList），并保持播放头的视觉锚点 */
 function applyZoomCw(){
   const c=proj._uiCache,tl=tlEl();
   if(!c||!c.win)return false;
   const cwOld=c.win.cw||effStepWidth();
   const anchor=cwOld?((tl&&tl.scrollLeft?tl.scrollLeft:0)/cwOld):0;
   const cwNew=effStepWidth()||CELL_MIN_PX;
-  const inner=$('#tlInner');
-  if(inner)inner.style.setProperty('--cw',cwNew+'px');
+  /* 缩放：格宽变了，但视口宽没变 —— 用缓存值，别在这里读 clientWidth（换一次缩放一次重排） */
   const n=poolColsFor(measuredViewW(),cwNew);
   c.win.cw=cwNew;
   if(!reshapePool(n))return false;
@@ -167,12 +191,19 @@ function applyZoomCw(){
 }
 /* 标尺格的 class（唯一拼法）：全量重建 renderRuler、增量复用 tagRulerCell、池增列 reshapePool 三处共用。
    注意不能改用 stepClass()：它给 .pc 用，普通档返回空串（'.pc' 的竖线是无条件 border、不靠 plain），
-   标尺的普通档必须显式带 plain，否则 CSS `.ruler .rs.plain{border-right:…}` 不命中 → 标尺竖线消失。 */
+   标尺的普通档必须显式带 plain，否则 CSS `.ruler .rs.plain{border-right:…}` 不命中 → 标尺竖线消失。
+   小节号的"居中位移"（原来由 CSS calc(var(--cw)/-2 + 2px) 算）在这里直接写成 px 变量：
+   小节号只有几十个，逐格写比让整棵时间线为 --cw 重算便宜得多。 */
 function rulerCls(s){return 'rs '+(s%SPB()===0?'bar':(s%beatSteps()===0?'beat':'plain'))}
+function barTxPx(){return (-(effStepWidth()||CELL_MIN_PX)/2+2)+'px'}
 function tagRulerCell(cell,s){
   cell.dataset.s=s;
   cell.className=rulerCls(s);
-  cell.innerHTML=s%SPB()===0?'<span>'+(s/SPB()+1)+'</span>':'';
+  if(s%SPB()===0){
+    cell.innerHTML='<span style="--barTx:'+barTxPx()+'">'+(s/SPB()+1)+'</span>';
+  }else if(cell.firstChild){
+    cell.textContent='';
+  }
 }
 export function syncWindowNow(force){
   if(!VIRTUAL)return;
@@ -184,13 +215,13 @@ export function syncWindowNow(force){
   if(c.win.n!==n){                              // 池列数变化（真实 resize，带滞回）→ 只增删格子
     if(!reshapePool(n)){structural(true);return}
   }
-  const nf=windowFrom(n);
+  const nf=windowFrom(n,c.win.viewW||0);
   if(!force&&nf===c.win.from)return;
   const d=nf-c.win.from;
   if(Math.abs(d)<=Math.floor(n/2))rotateWindow(d); // 小跨度：order 复用池（零节点搬移）
   else resetWindow(nf,n);                          // 大跨度（拖滚动条/跳转）：原地重贴步号
   c.win.from=nf;c.win.n=n;c.win.cw=cw;
-  if(!c.win.viewW)c.win.viewW=measuredViewW();
+  if(!c.win.viewW)c.win.viewW=measuredViewW(true);   // 只有在完全没有值时才真量一次
   setPoolVars(nf,n);
   try{paintRegionUI()}catch(e){}
   // 格子状态已由 applyCell 增量重贴（含清旧 tribar 标记），这里只需按 prec 重贴细分标记
@@ -218,7 +249,7 @@ function bindWindowScroll(){
     const c=proj._uiCache;
     if(c&&c.win){                                      // 滚动跨度超过一屏（拖滚动条/跳转）→ 等一帧反而会先显示空白
       const cw=effStepWidth()||CELL_MIN_PX;
-      const span=Math.abs(windowFrom(c.win.n)-c.win.from);
+      const span=Math.abs(windowFrom(c.win.n,c.win.viewW||0)-c.win.from);
       if(span>c.win.n){runSync(false);return}
     }
     if(_winPending)return;                             // 同一帧内多次 scroll 合并成一次
@@ -227,7 +258,14 @@ function bindWindowScroll(){
     _winTimer=setTimeout(()=>{if(_winPending)runSync(false)},150); // 兜底：rAF 被丢/被暂停也能补上
   };
   tl.addEventListener('scroll',()=>kick(false),{passive:true});
-  window.addEventListener('resize',()=>kick(true));
+  /* 真实 resize：这是"视口宽真的变了"的唯一入口 —— 在这里量一次并落盘缓存，
+     之后 syncWindowNow / reshapePool / applyZoomCw 一路都读缓存，不再各自强制布局。 */
+  window.addEventListener('resize',()=>{
+    const m=measureLayoutMetrics(true);
+    const c=proj._uiCache;
+    if(c&&c.win)c.win.viewW=m.viewW;
+    kick(true);
+  });
 }
 /* =========================================================================
    长曲虚拟滚动（FEAT-3a）：只渲染视口窗口内的列
@@ -236,43 +274,172 @@ function bindWindowScroll(){
    —— VIRTUAL=false：回到旧的全量建格路径（一行常量即可回退）。
    ========================================================================= */
 export const VIRTUAL=true;
-const WIN_BUF=32;   // 视口左右各预留的列数（避免快速滚动白屏）
+/* 视口两侧各预留的“缓冲屏”倍数：池 = 视口可见列 × 该系数（再取整对齐），
+   只跟“视口宽度”有关，**不跟曲长走**。 */
+const WIN_SPAN=2;
+/* 池列数硬上限：一行的 grid 轨道数 = poolN，而 layout 是 O(行数 × 轨道数)。
+   实测 458 轨道/行（25k 元素）时，一次 --cw 变化或整片样式重算要 300–700ms；
+   封顶到 256 后每行轨道数减半，DOM 元素数降到约 1.1 万，重排/重绘成本随之线性下降。 */
+const POOL_MAX=256;
+const poolMinColsFor=w=>Math.max(96,Math.ceil(w/CELL_MIN_PX)+2);
 const WIN_SHIFT=16; // 每次窗口滑动的最小列数（块对齐，减少重排次数）
 const POOL_W_TOL=24;// 视口宽变化小于该值视为滚动条抖动，不触发池重塑
 function tlEl(){return document.getElementById('timeline')}
-function measuredViewW(){
+/* =========================================================================
+   布局尺寸缓存 —— 这里是"浏览器未响应"的根因，改之前请先读完。
+
+   读 tl.clientWidth / getComputedStyle(inner) 会**强制一次同步布局**（style + layout）。
+   如果这个读取发生在"刚刚写过 DOM / 刚插过节点"之后，浏览器就必须把整棵 2 万元素的
+   时间线重新布局一遍；每读一次就重算一次。
+
+   实测（headless Edge 153 / 32 小节 2.2 万元素，CPU 自耗时采样）：
+     · 点音轨头 ×3   → 5.1 s 主线程冻结，其中 measuredViewW 占 6.3%、getPropertyValue 占 8.1%
+     · 点音轨头 ×10  → 13.7 s 冻结，measuredViewW 独占 30.8%、getPropertyValue 16.1%
+     · zoomIn ×8     → 6.7 s 冻结（applyZoomCw 内部多次量宽 → 每次都是一次整片重排）
+   这两个函数被 structural / renderTrackList / reshapePool / applyZoomCw 反复调用，
+   于是"插节点 → 量宽 → 布局 → 插节点 → 量宽 → 布局"形成正反馈。
+
+   约定：**尺寸只在"真的可能变了"的时候量一次，之后一律读缓存**
+     · _viewW()      ：视口宽，只在 window.resize 与 structural() 开头量；
+     · _labW(inner)  ：左侧名称列宽，同上（theme.css 里是常量 96px）。
+   两者都绝不出现在滚动 / 逐帧 / 逐个音轨的路径里。
+   ========================================================================= */
+let _mwView=0, _mwLab=0;
+function measureLayoutMetrics(force){
   const tl=tlEl();
-  return (tl&&tl.clientWidth)?tl.clientWidth:((typeof window!=='undefined'&&window.innerWidth)||1200);
+  if(force||!_mwView){
+    _mwView=(tl&&tl.clientWidth)?tl.clientWidth:((typeof window!=='undefined'&&window.innerWidth)||1200);
+  }
+  if(force||!_mwLab){
+    let v=0;
+    try{
+      const inner=$('#tlInner');
+      v=inner?parseFloat(getComputedStyle(inner).getPropertyValue('--labW')):NaN;
+    }catch(e){}
+    _mwLab=(isFinite(v)&&v>0)?v:96;
+  }
+  return {viewW:_mwView,labW:_mwLab};
 }
+/* 视口宽：走缓存。force=true 时才真的量一次（resize / 结构重建）；
+   注意"窗口没变但内容变了"（池封顶 / 滚动条出现）也会让 clientWidth 变，
+   所以判断依据是**缓存值是否与当前布局可能出现偏差**，由调用方用 force 表达。 */
+function measuredViewW(force){
+  if(force||!_mwView){measureLayoutMetrics(true)}
+  return _mwView;
+}
+function cachedLabW(){ if(!_mwLab)measureLayoutMetrics(true); return _mwLab }
 function viewColsFor(w,cw){return Math.max(8,Math.ceil(w/cw)+2)}
-function poolColsFor(w,cw){return Math.max(1,Math.min(proj.steps,viewColsFor(w,cw)+2*WIN_BUF))}
+/* 池列数：只由“视口宽 ÷ 格宽 × WIN_SPAN”决定，再按 min(池最小值, 曲长) 夹住。
+   旧实现里最后一步是 Math.min(proj.steps, …)，当曲长比“视口×2”小的时候
+   （32 小节缩到 4px：512 步 < 视口所需 458 列）整池就等于全曲 → 虚拟滚动等于没开。 */
+function poolColsFor(w,cw){
+  const want=Math.min(POOL_MAX,viewColsFor(w,cw)*WIN_SPAN);
+  const min=Math.min(poolMinColsFor(w),proj.steps);
+  return Math.max(1,Math.min(proj.steps,Math.max(min,want)));
+}
 function poolCols(){ // 池列数：视口宽用“滞回”取值，滚动条出现/消失造成的 ±20px 抖动不触发重塑
   const c=proj._uiCache, cw=effStepWidth()||CELL_MIN_PX;
   let w=measuredViewW();
   if(c&&c.win&&c.win.viewW&&Math.abs(w-c.win.viewW)<=POOL_W_TOL)w=c.win.viewW;
   return poolColsFor(w,cw);
 }
-function windowFrom(pool){ // 窗口起点（0 … steps-pool），带左侧缓冲；按 WIN_SHIFT 列对齐以减少重排
+/* 窗口起点（0 … steps-pool），带左侧缓冲；按 WIN_SHIFT 列对齐以减少重排。
+   viewW 一律由调用方把缓存值传进来，这里**不做任何布局读取**（滚动路径上尤其重要）。 */
+function windowFrom(pool,viewW){
   const tl=tlEl();
   const cw=effStepWidth()||CELL_MIN_PX;
   const sc=(tl&&tl.scrollLeft)?tl.scrollLeft:0;
   const n=pool||poolCols();
-  let from=Math.floor(sc/cw)-WIN_BUF;
+  /* 缓冲是"池内自带的"：池宽通常 = 视口 × WIN_SPAN，视口只占池中间的 1/WIN_SPAN，
+     所以起点落在 sc/cw - 半屏缓冲 就能让左右各留半屏。 */
+  const w=viewW||measuredViewW();
+  const visibleCols=Math.ceil(w/cw)+2;
+  const buf=Math.max(8,Math.floor((n-visibleCols)/2));
+  let from=Math.floor(sc/cw)-buf;
   from=Math.floor(from/WIN_SHIFT)*WIN_SHIFT;
+  /* 极端窄格（POOL_MAX 封顶后池比视口还窄）：不能只靠缓冲居中，
+     否则池右缘会落到视口内部 → 右侧一片空白。此时以"视口左缘"为基准并保证池右缘覆盖视口。 */
+  if(n<visibleCols)from=Math.floor(sc/cw);
   from=Math.max(0,Math.min(from,Math.max(0,proj.steps-n)));
   return from;
 }
-/* 池偏移/池宽改成 #tlInner 上的 CSS 变量：滚动时只写 1~2 个变量，
-   行的 grid-template-columns 字符串恒定不变（→ 不再每行重写、不再触发整片重排） */
-const ROW_TPL='var(--labW) var(--poolOff) repeat(var(--poolN), var(--cw))';
-const RULER_TPL='calc(var(--labW) + 5px) var(--poolOff) repeat(var(--poolN), var(--cw))';
-function rowTemplate(win){return ROW_TPL}
-function rulerTemplate(win){return RULER_TPL}
+/* 左侧名称列宽（--labW，theme.css 里是 96px）：先看缓存，再回落到全局尺寸缓存。
+   两处都不读布局（除非是全局缓存第一次初始化）—— getComputedStyle 会强制样式重算。 */
+function labWidthPx(){
+  const c=proj._uiCache;
+  if(c&&c.labW)return c.labW;
+  const w=cachedLabW();
+  if(c)c.labW=w;
+  return w;
+}
+/* 池偏移/池宽：**把解析好的像素模板直接写到每一行上**，不用 CSS 变量。
+   为什么不用 `repeat(var(--poolN), var(--cw))` + 只改 `--poolOff`（旧实现）：
+   自定义属性的值变了，Chrome 需要对**整棵子树**做一次样式失效重算，再重算布局。
+   主页面 32 小节是 2.2 万元素，实测「写一次 --poolOff + 下一帧」= 230–330ms；
+   同样的位移改成「给 53 行各写一次显式 px 模板」只要 17–60ms，
+   而且 --cw/--poolN 一起换也只按行数（几十行）计价，不按格子数（几万）计价。 */
+const ROW_TPL_PREFIX='var(--labW) ';
+function rowTemplateFor(from,cw,n){return ROW_TPL_PREFIX+(from*cw)+'px repeat('+n+', '+cw+'px)'}
+function rulerTemplateFor(from,cw,n){return 'calc(var(--labW) + 5px) '+(from*cw)+'px repeat('+n+', '+cw+'px)'}
+/* 格宽相关的外围表现：**只写具体属性的像素值，绝不写自定义属性**。
+   实测（主页面 2.2 万元素）往元素上写自定义属性，浏览器会保守地把整棵子树标记成样式失效 ——
+   哪怕没有任何规则消费它：4 个 .tgBody 写 --cgw = +229ms；写 background-size = 1.2ms；
+   写到 :root 更是 898ms。所以这里直接落盘 background-size/background-position，
+   选区竖带需要的格宽则以 --scw 的形式**只在选区/缩放变化时**写（不在滚动路径上）。 */
+function applyGridVars(cw){
+  const w=cw||effStepWidth()||CELL_MIN_PX;
+  const c=proj._uiCache;
+  const lab=(c&&c.labW)||labWidthPx();
+  const list=c&&c.bodyEls;
+  if(list){
+    for(let i=0;i<list.length;i++){
+      const b=list[i];if(!b)continue;
+      b.style.backgroundSize=w+'px 100%';
+      b.style.backgroundPosition=lab+'px 0';
+      b.style.setProperty('--scw',w+'px');   // 选区竖带用；只在缩放/选区变化时写
+    }
+  }
+  const rs=UI.ruler;
+  if(rs){
+    const tx=(-w/2+2)+'px';
+    /* 只遍历"小节格"（有 <span> 的那些）—— 池里普通格占绝大多数，用 children 全扫是白跑。
+       有 rulerCells 缓存时直接用它（长度 = 池列数，元素数和小节数同量级）。 */
+    const arr=(c&&c.rulerCells)||null;
+    if(arr){
+      for(let i=0;i<arr.length;i++){
+        const sp=arr[i]&&arr[i].firstElementChild;
+        if(sp)sp.style.setProperty('--barTx',tx);
+      }
+    }else{
+      const bs=rs.children;
+      for(let i=0;i<bs.length;i++){
+        const sp=bs[i]&&bs[i].firstElementChild;
+        if(sp)sp.style.setProperty('--barTx',tx);
+      }
+    }
+  }
+}
+/* 窗口位移只改「偏移」这一段，行数固定为池列数：逐行写一次 gridTemplateColumns。
+   cw 只在"缩放/重塑"时传进来；纯滚动时传 undefined，避免每帧重写格宽相关的外围属性。 */
 function setPoolVars(from,n,cw){
-  const inner=$('#tlInner');if(!inner)return;
-  const c=effStepWidth();
-  inner.style.setProperty('--poolOff',((from||0)*(cw||c))+'px');
-  inner.style.setProperty('--poolN',String(n));
+  const c=proj._uiCache;
+  if(!c||!c.win)return;
+  const w=(cw==null)?c.win.cw:(cw||CELL_MIN_PX);
+  const f=(from==null?c.win.from:from)||0;
+  const nn=(n==null?c.win.n:n)||0;
+  if(!nn)return;
+  const rows=c.poolRowEls;
+  if(rows){
+    for(let ti=0;ti<rows.length;ti++){
+      const rr=rows[ti];if(!rr)continue;
+      for(let r=0;r<rr.length;r++){
+        const row=rr[r];
+        if(row)row.style.gridTemplateColumns=rowTemplateFor(f,w,nn);
+      }
+    }
+  }
+  if(UI.ruler)UI.ruler.style.gridTemplateColumns=rulerTemplateFor(f,w,nn);
+  if(cw!=null)applyGridVars(w);
 }
 function stepClass(s){return s%SPB()===0?' bar':(s%beatSteps()===0?' beat':'')}
 function glowStepNow(){ // 当前“已点亮”的播放列（未点亮返回 -1）
@@ -282,8 +449,13 @@ function glowStepNow(){ // 当前“已点亮”的播放列（未点亮返回 -
    供虚拟滚动把格子复用给别的步之后自愈（applyCell 每次都会按坐标校正） */
 export let accFocus=null;
 let accFocusCell=null;
-/* 一个格子的全部可视状态（增量：步号没变且标记未置位时不做任何 DOM 写入） */
-function applyCell(cell,ti,r,s){
+/* 一个格子的全部可视状态（增量：步号没变且标记未置位时不做任何 DOM 写入）
+   ctx 可选，是批量路径传进来的"这一步/这一轨共用的量"：
+     · glow：本帧点亮的列号（滚动一帧对所有格子都是同一个值，原来是每格调一次 hooks，
+       一屏几千格就是几千次跨模块调用 + 一个内联对象分配）；
+     · accNo：该轨完全没有升降号标记 → 整轨的 accOf 直接跳过（绝大多数工程都是这种）。
+   这两个都是纯优化：不传 ctx 时行为与原来完全一致。 */
+function applyCell(cell,ti,r,s,ctx){
   const t=proj.tracks[ti];if(!t||!cell)return;
   const v=(t.pat[s]&&t.pat[s][r])||0;
   const on=v>0,velH=v>=.85;
@@ -296,21 +468,27 @@ function applyCell(cell,ti,r,s){
   const inSel=!!(regionSel&&regionSel.ti===ti&&s>=regionSel.from&&s<=regionSel.to);
   if(cell.classList.contains('sel')!==inSel)cell.classList.toggle('sel',inSel);
   // 升降号（acc）：格子右上角 ♯/♭ 标记（图形由 css/timeline.css 的 .pc::before 画）
-  const av=t.kind==='mel'?accOf(t,s,r):0;
+  const av=(t.kind!=='mel'||(ctx&&ctx.accNo))?0:accOf(t,s,r);
   const aUp=av===1,aDn=av===-1;
   if(cell.classList.contains('accUp')!==aUp)cell.classList.toggle('accUp',aUp);
   if(cell.classList.contains('accDn')!==aDn)cell.classList.toggle('accDn',aDn);
-  const lit=glowStepNow()===s;
+  const lit=(ctx&&ctx.glow!=null?ctx.glow:glowStepNow())===s;
   if(cell.classList.contains('playCol')!==lit)cell.classList.toggle('playCol',lit);
   // 焦点格高亮：窗口滑动会把格子复用给别的步，这里按坐标自愈（避免留下错位的焦点框）
   const isFoc=!!(accFocus&&accFocus.ti===ti&&accFocus.r===r&&accFocus.s===s);
   if(cell.classList.contains('accFocus')!==isFoc)cell.classList.toggle('accFocus',isFoc);
 }
-function tagCell(cell,ti,r,s){
+/* 一轨有没有升降号标记（批量重贴格子时用来整轨跳过 accOf） */
+function trackHasAcc(t){
+  if(!t||t.kind!=='mel'||!t.acc)return false;
+  for(const k in t.acc){const m=t.acc[k];for(const rr in m)if(m[rr])return true}
+  return false;
+}
+function tagCell(cell,ti,r,s,ctx){
   if(cell._s===s&&cell._ti===ti&&cell._r===r)return;
   cell._s=s;cell._ti=ti;cell._r=r;
   cell.dataset.ti=ti;cell.dataset.r=r;cell.dataset.s=s;
-  applyCell(cell,ti,r,s);
+  applyCell(cell,ti,r,s,ctx);
 }
 /* 新建一个格子（只有此路径会创建 .pc 节点） */
 function makeCell(ti,r,s){
@@ -374,7 +552,9 @@ export function autoFitZoom(){
     return;
   }
   const base=stepWidth();
-  const avail=Math.max(200,tl.clientWidth-40); // 与 zoomFitWindow 同一口径（去除左右留白）
+  /* 这是"用户改了曲长"的一次性路径，可以放心量一次真实视口宽；
+     量完顺手刷新全局缓存，后面 structural 里的十几处尺寸读取就都不用再强制布局了。 */
+  const avail=Math.max(200,measuredViewW(true)-40); // 与 zoomFitWindow 同一口径（去除左右留白）
   const w=Math.max(CELL_MIN_PX,Math.floor(avail/proj.steps)); // 整曲可见所需每格像素
   if(w>=base)return; // 本来就装得下 → 不动
   setZoomUI(w/base,true); // 只改缩放值，由调用方 structural 统一重绘
@@ -384,7 +564,7 @@ export function zoomFitWindow(){
   const tl=document.getElementById('timeline');
   if(!tl||!proj.steps)return;
   const bars=proj.steps/Math.max(1,SPB());
-  const avail=Math.max(200,tl.clientWidth-40); // 除去左右留白/标签列后可用宽度
+  const avail=Math.max(200,measuredViewW(true)-40); // 除去左右留白/标签列后可用宽度
   const base=stepWidth()*proj.steps;
   let z=base>0?avail/base:1;
   if(bars>=64)z=Math.max(z,FIT_MIN_LONG);
@@ -392,31 +572,63 @@ export function zoomFitWindow(){
   setZoomUI(z);
 }
 /* 重新渲染整个时间线结构 */
+/* =========================================================================
+   结构性重绘 vs 轻量刷新 —— "浏览器未响应"的第二个根因。
+
+   原实现里 `structural(true)` 是**无条件整片重建**：清空 #trackList → 重新建
+   ruler + 每一条轨的每一行每一个格子（32 小节 2.2 万元素）→ 再重建索引缓存 → 再全画一遍。
+   而它被挂在最常用的两个事件上：
+     · 点音轨表头（只是想"选中这条轨"）
+     · 点 key/mode/oct 下拉
+   实测同步 JS 占住主线程：点表头 ×10 = 5417ms、×3 = 1761ms —— 就是用户看到的"未响应"。
+
+   现在分成两条路：
+     · structural(full=false)          → 轻量：只重画当前窗口 + 恢复选区/细分标记（几十 ms）
+     · refreshStructure()              → 中等：只刷新 DOM 里已有的"选中态/行名/空态"，
+                                         不重建任何格子（点表头、改调式走这条）
+     · structural(true) / 缓存失效     → 完整重建（加删轨、改曲长、换拍号才需要）
+   ========================================================================= */
 export function structural(full){
   ensurePatSizes();
   try{closeAccMenu();clearAccFocus()}catch(e){} // 整片重建会换掉所有格子 DOM：浮层菜单与焦点框一并收回
+  /* 结构重建是"用户改了曲长/调性/轨数"的一次性入口，也是**唯一**允许重新量视口的地方：
+     在这里量一次（此刻 DOM 还没被大规模改动），后面十几处尺寸读取全部走缓存。
+     反过来说：不要在 renderTrackList / buildCaches / paintAll 之后再量宽 —— 那会强制把
+     刚建好的两万个格子重新布局一遍，实测就是 5–14 秒的"浏览器未响应"。 */
+  const _m=measureLayoutMetrics(true);
   const S=proj.steps, cw=effStepWidth();
   const inner=$('#tlInner');
-  inner.style.setProperty('--cw',cw+'px');
-  inner.style.setProperty('--stepsN',S);
-  // 虚拟路径：显式撑出整曲滚动宽度（窗口池只有一屏多宽，不再靠内容撑宽）
-  // 用 CSS 变量表达 → 只写一次字符串，缩放/滚动都不再改它（消除宽度抖动导致的布局偏移）
-  if(VIRTUAL)inner.style.minWidth='calc(var(--labW) + var(--stepsN) * var(--cw) + 32px)';
-  else inner.style.removeProperty('min-width');
+  /* 滚动宽度用显式 px 写死（原来是 calc(var(--labW) + var(--stepsN) * var(--cw) + 32px)）。
+     引用 --cw 会让整棵时间线参与"格宽变更 → 样式失效"的连锁重算，而宽度本身只在
+     曲长/缩放变化时才会变 —— 直接算好写进去，缩放路径就不会再牵动两万个格子。 */
+  if(VIRTUAL){
+    if(!proj._uiCache)proj._uiCache={};
+    proj._uiCache.labW=_m.labW;              // 已在上面的 measureLayoutMetrics 里量好
+    inner.style.minWidth=(_m.labW+S*cw+32)+'px';
+  }else inner.style.removeProperty('min-width');
   // 行名（左侧 .lab）依赖：调性/调式/基音八度 + 每轨 shift/keyOct/行数；缓存 rev 只覆盖前者
   const labSig=proj.key+'|'+proj.mode+'|'+proj.keyOct+'|'+proj.tracks.map(t=>(t.shift||0)+','+(t.keyOct||0)+','+patRows(t)).join(';');
-  if(full||!proj._uiCache||proj._uiCache.steps!==S||proj._uiCache.rev!==(proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct)){
+  const stale=!proj._uiCache||proj._uiCache.steps!==S||proj._uiCache.rev!==(proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct);
+  if(full&&!stale){
+    /* full 但"结构签名"没变（点表头改选中、改调式…）：DOM 复用，只刷选中态与行名。
+       这是原来最贵也最没必要的那个分支 —— 一次 500ms 起，连点就是几秒的假死。 */
+    refreshStructure(labSig);
+    return;
+  }
+  if(full||stale){
     /* 修复 Bug 2 的保险（方案 B）：重建缓存/行池之前先把旧 DOM 上的 playCol 清干净。
        必须放在替换 proj._uiCache 之前 —— clearStepGlow() 需要读的还是旧缓存里的 cols。 */
     try{hooks.seek?.clearStepGlow?.()}catch(e){}
-    proj._uiCache={steps:S,rev:proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct,labSig};
+    const rev=proj.tracks.length+'-'+proj.mode+'-'+proj.key+'-'+proj.keyOct;
     const _n=VIRTUAL?poolCols():0;
-    const _from=VIRTUAL?windowFrom(_n):0;
-    proj._uiCache.win=VIRTUAL?{from:_from,n:_n,cw:effStepWidth(),viewW:measuredViewW()}:null;
-    if(VIRTUAL)setPoolVars(_from,_n,cw); // 先写池变量，行模板随即生效
+    const _from=VIRTUAL?windowFrom(_n,_m.viewW):0;
+    /* 先立"带脚手架的空缓存"，renderTrackList 边建格子边把索引填满 → 省掉整趟 buildCaches 回查。
+       顺序：beginCache（换缓存）→ renderRuler/renderTrackList（建 DOM + 填索引）→ sealCache。 */
+    beginCache(S,_m.labW,VIRTUAL?{from:_from,n:_n,cw:effStepWidth(),viewW:_m.viewW}:null);
     renderRuler();
     renderTrackList();
-    buildCaches();
+    sealCache(rev,labSig);
+    if(VIRTUAL)setPoolVars(_from,_n,cw);
     paintAll();
     refreshEmpty();
     rebuildEvents();
@@ -430,6 +642,27 @@ export function structural(full){
   try{paintRegionUI()}catch(e){} // 重建后恢复“选区”高亮
   try{refreshRhythmMarkers()}catch(e){} // 重建后同步节奏细分标记
 }
+/* 轻量结构刷新：DOM（格子/ruler/行）全部复用，只把"随结构变化而变化的表现"贴回去。
+   走这条路的条件：full=true 但结构签名（轨数/调性/调式/曲长）没变。 */
+function refreshStructure(labSig){
+  const c=proj._uiCache;
+  if(!c){structural(true);return}
+  // ① 选中轨高亮（.thead.sel 由 renderTrackList 写，重建被跳过时要自己补）
+  try{
+    const heads=$$('#trackList .thead');
+    heads.forEach((h,i)=>h.classList.toggle('sel',i===proj.sel));
+  }catch(e){}
+  // ② 行名（调式/音区变了才会不一致）
+  if(c.labSig!==labSig){ c.labSig=labSig; try{relabelRows()}catch(e){} }
+  // ③ 事件表 + 节拍/小节底色（格宽或拍号变了才需要，签名没变时是空操作级成本）
+  try{rebuildEvents()}catch(e){}
+  try{paintAll()}catch(e){}
+  try{refreshEmpty()}catch(e){}
+  try{bindWindowScroll()}catch(e){}
+  try{hooks.seek?.updateSeekUI?.(Play.step)}catch(e){}
+  try{paintRegionUI()}catch(e){}
+  try{refreshRhythmMarkers()}catch(e){}
+}
 export function refreshEmpty(){
   UI.emptyTip.classList.toggle('hidden',proj.tracks.length>0);
 }
@@ -439,18 +672,21 @@ export function renderRuler(){
   const win=VIRTUAL&&proj._uiCache?proj._uiCache.win:null;
   const from=win?win.from:0, to=win?(win.from+win.n):S;
   // 轨道内容因组边框(1px)+左侧色条(4px)整体右移 5px，标尺补上同样的偏移保持列对齐
-  r.style.gridTemplateColumns=win?rulerTemplate(win):'calc(var(--labW) + 5px) repeat(var(--stepsN), var(--cw))';
+  r.style.gridTemplateColumns=win?rulerTemplateFor(win.from,win.cw||effStepWidth(),win.n)
+    :('calc(var(--labW) + 5px) repeat('+S+', '+effStepWidth()+'px)');
   const sp=el('div','rl','');
   r.appendChild(sp);
   if(win)r.appendChild(el('div','')); // 与行同理：占住标尺的偏移轨道，避免整条标尺左移一列
   if(win)proj._uiCache.rulerCells=[];
+  const tx=barTxPx();
   for(let s=from;s<to;s++){
     const c=el('div', rulerCls(s));
-    if(s%SPB()===0)c.innerHTML='<span>'+(s/SPB()+1)+'</span>';
+    if(s%SPB()===0)c.innerHTML='<span style="--barTx:'+tx+'">'+(s/SPB()+1)+'</span>';
     if(win){c.dataset.s=s;proj._uiCache.rulerCells.push(c)}
     r.appendChild(c);
   }
 }
+let cnt=null;   // 建 DOM 时顺带填的索引缓存（见 beginCache/sealCache）
 export function renderTrackList(){
   const list=UI.trackList;list.innerHTML='';
   proj.tracks.forEach((t,ti)=>buildTrackGroup(t,ti,list));
@@ -460,6 +696,7 @@ export function buildTrackGroup(t,ti,list){
   {
     const win=VIRTUAL&&proj._uiCache?proj._uiCache.win:null;
     const from=win?win.from:0, to=win?(win.from+win.n):proj.steps;
+    if(cnt)cnt.poolRowEls[ti]=[];
     const grp=el('div','tgroup');grp.dataset.ti=ti;
     const col=el('div','tgColor');col.style.background=t.color;
     grp.appendChild(col);
@@ -523,8 +760,10 @@ export function buildTrackGroup(t,ti,list){
     if(!t.collapsed){
       const rows=patRows(t);
       for(let r=0;r<rows;r++){
+        if(cnt&&cnt.poolRows[ti])cnt.poolRows[ti][r]=[];
         const row=el('div','row'+(t.kind==='mel'?' melRowH':' drumRowH'));
-        row.style.gridTemplateColumns=win?rowTemplate(win):'var(--labW) repeat(var(--stepsN), var(--cw))';
+        row.style.gridTemplateColumns=win?rowTemplateFor(win.from,win.cw||effStepWidth(),win.n)
+          :('var(--labW) repeat('+proj.steps+', '+effStepWidth()+'px)');
         row.style.setProperty('--tc',t.kind==='drum'?KIT_COLORS[r]:t.color);
         const lab=el('div','lab'+(t.kind==='mel'&&r%7===0?' root':''));
         if(t.kind==='drum'){
@@ -542,11 +781,23 @@ export function buildTrackGroup(t,ti,list){
           }
         });
         row.appendChild(lab);
+        if(cnt&&cnt.poolRowEls[ti])cnt.poolRowEls[ti][r]=row;
         // 虚拟路径：行模板是 [labW][poolOff][repeat(poolN)] 共 n+2 条轨道，而行内元素只有 lab+n 格，
         // CSS 自动放置不会为空轨道留位 → 必须放一个“占位元素”占住偏移轨道，否则整行左移一列。
         if(win)row.appendChild(el('div','')); // 无类名的空占位：宽度由所属轨道(--poolOff)决定
+        /* 建格子的同时把索引缓存一起填好（原来是建完再 buildCaches() 用
+           querySelectorAll('.pc') 把两万个格子重新查一遍、再解析 dataset）。
+           makeCell 本来就知道 (ti,r,s)，顺手写进 cols/cells 比事后再问 DOM 快一倍。 */
+        const ccnt=(cnt&&cnt.poolRows[ti]&&cnt.poolRows[ti][r])?cnt:null;
         for(let s=from;s<to;s++){ // 虚拟路径只建窗口内的列（池），旧路径为全曲
-          row.appendChild(makeCell(ti,r,s)); // 走统一建格路径：缓存 _s/_ti/_r，状态一次算好
+          const cell=makeCell(ti,r,s);
+          row.appendChild(cell);
+          if(ccnt){
+            ccnt.poolRows[ti][r].push(cell);
+            const tm=ccnt.cells[ti]&&ccnt.cells[ti][r];
+            if(tm&&s>=0&&s<tm.length)tm[s]=cell;
+            if(ccnt.cols[ti]&&ccnt.cols[ti][s])ccnt.cols[ti][s].push(cell);
+          }
         }
         body.appendChild(row);
       }
@@ -595,6 +846,10 @@ export function buildCaches(){
   const c=proj._uiCache;
   c.cols=proj.tracks.map(()=>Array.from({length:proj.steps},()=>[]));
   c.cells=[];c.poolRows=[];c.poolRowEls=[];
+  /* .tgBody 是网格竖线兜底层 + 选区竖带的宿主：
+     applyGridVars/缩放时只改这几个元素的 background-size/position 与 --scw（具体属性，不是
+     全局自定义属性），所以先缓存起来，避免每次都重新查询整片时间线。 */
+  c.bodyEls=$$('#trackList .tgBody');
   proj.tracks.forEach((t,ti)=>{
     const rows=patRows(t);
     const tm=Array.from({length:rows},()=>new Array(proj.steps));
@@ -614,6 +869,39 @@ export function buildCaches(){
   });
   hooks.seek?.resetGlow?.(); // DOM 缓存重建（单元格全新）→ 强制下次 glowStepCells 重绘当前列
 }
+/* =========================================================================
+   索引缓存"边建边填"（替代建完再 buildCaches() 全量回查）
+
+   buildCaches() 要用 querySelectorAll('.pc') 把两万个格子重新查一遍、再逐个读 dataset.s，
+   在长曲上就是实打实的 100–200ms。而格子本来就是 makeCell(ti,r,s) 建的 ——
+   它自己就知道坐标，顺手写进 cols/cells 比事后再问 DOM 便宜得多。
+   用法（只在完整重建路径上）：
+     beginCache() → renderTrackList()（顺带填满）→ sealCache()
+   beginCache 会先把 proj._uiCache 换成"带脚手架的空缓存"，此时 windowFrom/poolCols 都只读
+   win/labW，不碰 cols/cells，所以中间态是安全的。
+   ========================================================================= */
+function beginCache(S,labW,win){
+  const c={steps:S,labW,win};
+  c.cols=proj.tracks.map(()=>Array.from({length:S},()=>[]));
+  c.cells=[];c.poolRows=[];c.poolRowEls=[];
+  proj.tracks.forEach((t,ti)=>{
+    const rows=patRows(t);
+    c.cells.push(Array.from({length:rows},()=>new Array(S)));
+    c.poolRows.push([]);
+    c.poolRowEls.push([]);
+  });
+  cnt=c;
+  proj._uiCache=c;
+  return c;
+}
+function sealCache(rev,labSig){
+  const c=cnt;cnt=null;
+  if(!c)return null;
+  c.rev=rev;c.labSig=labSig;
+  c.bodyEls=$$('#trackList .tgBody');
+  hooks.seek?.resetGlow?.();
+  return c;
+}
 /* 当前渲染窗口 [from,to)：虚拟路径下只有这些步有格子；旧路径为全曲 */
 function winRange(){
   const c=proj._uiCache;
@@ -626,12 +914,18 @@ export function paintOne(ti,r,s){
   const cell=cells&&cells[r]&&cells[r][s];
   if(!cell)return;
   const v=t.pat[s]&&t.pat[s][r]||0;
-  cell.classList.toggle('on',v>0);
-  cell.classList.toggle('velH',v>=.85);
+  /* classList.toggle(name,force) 即便 force 与现状一致也会走一遍 DOM 标记，
+     而格子的「已画」状态在增量路径里几乎总是等于目标值（applyCell / makeCell 已经画过）。
+     先读一下 classList.contains 短路掉绝大多数写入：paintAll 面对的是几万格，
+     省下的是几万次"无变化的 DOM 写入 → 样式失效"调用。 */
+  const on=v>0,velH=v>=.85;
+  if(cell.classList.contains('on')!==on)cell.classList.toggle('on',on);
+  if(cell.classList.contains('velH')!==velH)cell.classList.toggle('velH',velH);
   // 升降号标记（与 applyCell 同一口径，保证单格增量重绘也同步）
   const av=t.kind==='mel'?accOf(t,s,r):0;
-  cell.classList.toggle('accUp',av===1);
-  cell.classList.toggle('accDn',av===-1);
+  const aUp=av===1,aDn=av===-1;
+  if(cell.classList.contains('accUp')!==aUp)cell.classList.toggle('accUp',aUp);
+  if(cell.classList.contains('accDn')!==aDn)cell.classList.toggle('accDn',aDn);
 }
 export function paintAll(){
   const rng=winRange();
