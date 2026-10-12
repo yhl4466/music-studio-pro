@@ -65,6 +65,21 @@
 
   <div class="acts">
     <div class="vizBox"><canvas id="viz" width="120" height="30"></canvas></div>
+    <!-- 自动保存状态：改动后显示"未保存"，~900ms 后变"已自动保存 HH:MM:SS"。
+         点它打开菜单（保存到作品库历史 / 立即保存 / 导出）。没有这块指示时，
+         自动保存是完全静默的 —— 用户无从判断到底存没存，会合理地以为"没有自动保存"。 -->
+    <div class="menuWrap" id="saveWrap">
+      <button class="btn saveBtn" id="saveBtn" title="自动保存状态（点开可查看历史版本）" aria-haspopup="true" aria-expanded="false">
+        <span class="saveDot" id="saveDot" aria-hidden="true"></span><span id="saveTxt">已就绪</span>
+      </button>
+      <div class="menu menuRight" id="saveMenu" role="menu" aria-label="保存与历史">
+        <div class="saveMenuHead" id="saveMenuHead">自动保存已开启</div>
+        <button class="mi" data-sact="now"><span class="ic"></span>立即保存一次</button>
+        <button class="mi" data-sact="lib"><span class="ic"></span>存入作品库…</button>
+        <div class="divider" style="margin:4px 0"></div>
+        <button class="mi" data-sact="history"><span class="ic"></span>查看历史版本…</button>
+      </div>
+    </div>
     <div class="menuWrap">
       <button class="btn" id="eqBtn" title="主输出 3 段均衡 / 砖墙限制器">EQ</button>
       <div class="menu eqPanel" id="eqPanel">

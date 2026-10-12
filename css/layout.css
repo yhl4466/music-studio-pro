@@ -24,11 +24,16 @@ input,select{font-family:inherit;color:inherit}
 ::-webkit-scrollbar-track{background:transparent}
 
 /* ---------- 顶栏 ---------- */
+/* z-index 必须**高于** .side（同为 40 时，DOM 里靠后的侧栏会盖住顶栏里展开的菜单）。
+   顶栏自己就是一个层叠上下文（position:relative + z-index），它内部 .menu 的 z-index:100
+   只在顶栏内部有意义 —— 所以想"菜单压过侧栏"，只能把整个顶栏抬到侧栏之上。
+   两者在几何上不重叠：.wrap 有 height:calc(100% - 56px)、.side 是它内部的绝对定位层，
+   展开的侧栏从顶栏下沿开始，所以抬高顶栏不会挡住侧栏。 */
 .topbar{
   height:56px;display:flex;align-items:center;gap:14px;padding:0 14px;
   background:linear-gradient(180deg,rgba(16,24,40,.92),rgba(11,16,29,.9));
   background:var(--glass);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
-  border-bottom:1px solid var(--line);box-shadow:var(--shadow-1);position:relative;z-index:40;
+  border-bottom:1px solid var(--line);box-shadow:var(--shadow-1);position:relative;z-index:60;
 }
 .brand{display:flex;align-items:center;gap:9px;min-width:190px;cursor:pointer;user-select:none}
 .logo{width:30px;height:30px;border-radius:var(--r-sm);background:var(--grad);display:flex;align-items:center;justify-content:center;
@@ -112,6 +117,21 @@ input[type=range]:disabled{opacity:.5;cursor:not-allowed}
 .btn.sm{height:var(--h-sm);padding:0 9px;font-size:11.5px}
 .btn.on{border-color:var(--sig);color:var(--sig);background:rgba(var(--acc-rgb),.1)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
+/* ---------- 自动保存状态指示（顶栏）----------
+   状态点用颜色区分：pending=琥珀（有改动待保存）、saved=绿、error=红、idle=灰。
+   文案由 js 写；这里只负责"看得见"和不易误读的对比度。 */
+.saveBtn{display:inline-flex;align-items:center;gap:6px;max-width:190px}
+.saveBtn #saveTxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saveDot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--dim);
+  transition:background-color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out)}
+.saveBtn[data-state="pending"] .saveDot{background:var(--warn);box-shadow:0 0 7px rgba(232,177,63,.55)}
+.saveBtn[data-state="saved"] .saveDot{background:var(--good);box-shadow:0 0 7px rgba(53,201,143,.5)}
+.saveBtn[data-state="error"] .saveDot{background:var(--bad);box-shadow:0 0 8px rgba(229,72,77,.6)}
+.saveBtn[data-state="error"]{border-color:var(--bad);color:var(--bad)}
+.saveMenuHead{padding:7px 10px 4px;font-size:10.5px;color:var(--dim);line-height:1.6;border-bottom:1px solid var(--hair)}
+.mi[data-sact="now"] .ic{-webkit-mask-image:var(--ic-bookmark);mask-image:var(--ic-bookmark)}
+.mi[data-sact="lib"] .ic{-webkit-mask-image:var(--ic-save);mask-image:var(--ic-save)}
+.mi[data-sact="history"] .ic{-webkit-mask-image:var(--ic-restore);mask-image:var(--ic-restore)}
 .menuWrap{position:relative}
 /* 菜单：进入 280ms（--dur-base/--ease-out），退出 200ms（--dur-fast/--ease-in ≈ 进入 × 0.75）。
    display 用 allow-discrete 参与过渡，配合 @starting-style 才能"关也有动画"（元素在过渡结束后才真正 display:none）。 */
@@ -143,8 +163,7 @@ body{overflow-x:hidden}      /* 收起时侧栏停在视口右侧之外，不该
    展开 280ms/--ease-out、收起 200ms/--ease-in（与批 3 的"退出 = 进入 × 0.75"一致）；
    展开时加 --shadow-2 表示"浮在上方"。收起的侧栏 visibility:hidden（0s + 延迟切换），
    这样它的控件不会在收起状态下被 Tab 聚焦到，同时收起动画仍然看得见。 */
-.side{position:absolute;top:0;right:0;bottom:0;width:352px;z-index:40;
-  border-left:1px solid var(--line);
+.side{position:absolute;top:0;right:0;bottom:0;width:352px;z-index:40;  border-left:1px solid var(--line);
   background:linear-gradient(180deg,rgba(14,21,38,.6),rgba(11,16,29,.55));
   background:var(--glass);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
   box-shadow:none;
@@ -312,6 +331,13 @@ input.numTickAlt{animation:numTickSoftAlt var(--dur-fast) var(--ease-out)}
 .helpLine kbd{background:var(--ctl-bg2);border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;padding:0 6px;font:600 10px var(--mono);color:var(--mut);min-width:20px;text-align:center;display:inline-block}
 .aiChipRow{display:flex;gap:6px;margin:8px 0}
 .modeNote{font-size:11px;color:var(--dim);background:rgba(var(--acc2-rgb),.08);border:1px dashed rgba(var(--acc2-rgb),.35);border-radius:var(--r-sm);padding:7px 9px;line-height:1.7}
+/* AI 作曲栏的免责声明（用户要求写明"这不是真 AI"）。
+   刻意做得比 .small 更弱、但有左边框便于扫读：它是说明性文字，不该抢「一键成曲」的注意力，
+   也不能小到看不见 —— 11px/1.75 + --dim 与 .small 同量级，靠边框与背景区分层级。 */
+.aiNote{font-size:11px;color:var(--dim);line-height:1.75;margin-top:10px;padding:8px 10px;
+  background:var(--well);border-left:2px solid var(--hair-2);border-radius:0 var(--r-xs) var(--r-xs) 0}
+.aiNote b{color:var(--txt)}
+.aiNote .ico{width:13px;height:13px;vertical-align:-2px;color:var(--warn,#e0a33a)}
 /* ---- 播放进度条（可拖拽） ---- */
 .seekBar{display:flex;align-items:center;gap:12px;padding:6px 16px 2px;position:relative;z-index:30}
 .seekTrack{flex:1;height:22px;background:transparent;cursor:pointer;position:relative;touch-action:none}
@@ -345,25 +371,28 @@ input.numTickAlt{animation:numTickSoftAlt var(--dur-fast) var(--ease-out)}
 .pc.sel{background:rgba(255,208,90,.13);z-index:2}
 .mel .pc.sel,.drum .pc.sel{background:rgba(255,208,90,.13)}
 /* 网格线兜底（A 方案）：竖线不再只靠 .pc 的 border-right 画 —— 轨道体再加一层竖向网格背景，
-   周期 = --cw、相位 = --labW（首列左缘）、颜色 = --grid-line。
-   不用再加 min-width：#trackList 的每个 .tgroup/.tgBody 本来就被 #tlInner 的 min-width
-   （= labW + stepsN*cw + 32px）撑成“整曲宽度”（基线实测 128 小节时 .tgBody 宽 16474px，
-   而池里的格子只覆盖 2096px），所以这层背景天然铺满整曲 —— 即使虚拟池没渲染到那一片
-   （长曲滚动、池滞后/停摆），那里也仍然有网格线，不会再出现“空白无格”。
+   周期 = 格宽、相位 = 左侧名称列宽、颜色 = --grid-line。
+   ★ 这里刻意**不引用任何自定义属性**：
+     实测（headless Edge 153 / 主页面 32 小节 2.2 万元素）往一个元素上写自定义属性，
+     浏览器会保守地把**整棵子树**标记为样式失效，哪怕没有任何规则消费这个值：
+       · 写 --cgw 到 4 个 .tgBody → +强制布局 229ms
+       · 写 background-size 到同样 4 个 .tgBody → 1.2ms
+       · 写自定义属性到 :root → 898ms（整页）
+     所以格宽/相位由 JS 直接写成**具体属性的像素值**（ui/timeline.js 的 applyGridVars）。
+     选区竖带的位移/宽度同理：--selFrom/--selN 仍然是变量，但只在选区变化时写一次，
+     而且每次都会把 --scw 一起落盘（缩放后由 applyGridVars 刷新）。
    只画竖线：横线仍由 .pc 的 border-bottom 负责（行数固定、永远全渲染，不存在缺行问题）。 */
 .tgBody{position:relative;
   background-image:linear-gradient(90deg,var(--grid-line) 0 1px,transparent 1px);
-  background-size:var(--cw) 100%;
-  background-position:var(--labW) 0;
   background-repeat:repeat}
 .tgBody::before{
   /* top/bottom 与 timeline.css 的 .tgBody{padding:2px 0 6px} 对齐，让竖带正好覆盖整片琴键行 */
   content:'';position:absolute;top:2px;bottom:6px;display:none;pointer-events:none;z-index:1;
-  left:calc(var(--labW) + var(--selFrom,0) * var(--cw));
-  width:calc(var(--selN,0) * var(--cw));
+  left:calc(var(--labW) + var(--selFrom,0) * var(--scw,24px));
+  width:calc(var(--selN,0) * var(--scw,24px));
   background:rgba(255,208,90,.07);
-  border-left:clamp(1px, calc(var(--cw) * .12), 3px) solid rgba(255,208,90,.85);
-  border-right:clamp(1px, calc(var(--cw) * .12), 3px) solid rgba(255,208,90,.85);
+  border-left:1px solid rgba(255,208,90,.85);
+  border-right:1px solid rgba(255,208,90,.85);
 }
 .tgBody.selOn::before{display:block}
 .tgBody.selCutL::before{border-left-color:transparent} /* 选区左端在当前渲染窗口之外：不画假边界 */

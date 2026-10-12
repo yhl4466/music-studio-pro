@@ -11,7 +11,8 @@ import { Play, metroOn, setMetroOn, loopOn, setLoopOn, rebuildEvents, fireStep, 
 import { encodeWav, exportWavRender } from '../audio/render.js';
 import { AI, AI_STYLES, SEC_NAME, aiSeedLocked, setAiSeedLocked, planSections, barDyn } from '../ai/styles.js';
 import { aiComposeAll, aiRegenTrack, aiExtendTrack, aiStyleTransfer } from '../ai/compose.js';
-import { serializeProject, applyProjectData, autosaveNow, loadAutosave, quickSave, quickLoad, saveProjectFile, onFileImport, undoH, pendingPre, setPendingPre, beginEdit, commitEdit, doUndo, doRedo, pushSnap, refreshUndoUI, restoreSnapshot, stopIfPlaying, afterLoad, markDirtyUI } from '../io/project.js';
+import { serializeProject, applyProjectData, autosaveNow, loadAutosave, quickSave, quickLoad, saveProjectFile, onFileImport, undoH, pendingPre, setPendingPre, beginEdit, commitEdit, doUndo, doRedo, pushSnap, refreshUndoUI, restoreSnapshot, stopIfPlaying, afterLoad, markDirtyUI, onSaveState, saveStatus } from '../io/project.js';
+import { clockText } from '../core/storage.js';
 import { shareLink, loadShareFromHash } from '../io/share.js';
 import { exportMidiUI, importMidiUI } from '../io/midi.js';
 import { exportWavUI } from '../io/wav.js';
@@ -113,27 +114,43 @@ export function bindTopControls(){
   UI.bpmNum.addEventListener('change',()=>syncBpm(clamp(+UI.bpmNum.value||100,40,220)));
   const syncSw=()=>{const v=+UI.swing.value;proj.swing=v;UI.swingV.textContent=v+'%'};
   UI.swing.addEventListener('input',syncSw);
-  const setBars=b=>{
+  /* 曲长变更：**合并到一帧里只重建一次**。
+     长按 +/- 时旧实现是每次 setInterval 都走一遍完整重建（structural(true) 会把两万个格子
+     全建一遍 + 索引 + 全画），实测连按 3 次 = 4.1 秒主线程冻结 —— 就是"浏览器未响应"。
+     现在把"改 proj.steps + 重建"整体推迟到下一帧：同一帧内按多少次 + 都只重建一次。
+     UI 数值与关卡（clamp）在前一步就更新，所以用户看到的数字反馈不受影响。 */
+  let barPending=0;
+  const applyBarsNow=()=>{
+    if(!barPending)return;
+    const b=barPending;barPending=0;
     beginEdit();
-    proj.steps=clamp(Math.round(b),1,MAX_BARS)*SPB();
+    proj.steps=b;
     syncBarsUI();
     if(Play.playing){stopPlay();setTimeout(togglePlay,60)}
     if(Math.round(proj.steps/SPB())>=32)autoFitZoom(); // 长曲：先按需缩小视图，再统一重绘一次
     structural(true);renderInspector();rebuildEvents();markDirtyUI();
-    /* 曲长变了之后显式再同步一次虚拟窗口（C 方案）：structural(true) 已经按新 proj.steps 重算池
-       （--poolN/--poolOff 都会更新），但“窗口起点”是按当前 scrollLeft 算的；这里强制同步一次，
-       保证加/减小节后池一定与视口对齐，不会出现“新小节那片没有 DOM 格子 → 看着没网格线”。 */
+    /* 曲长变了之后显式再同步一次虚拟窗口（C 方案）：structural(true) 已经按新 proj.steps 重算池，
+       但"窗口起点"是按当前 scrollLeft 算的；这里强制同步一次，
+       保证加/减小节后池一定与视口对齐，不会出现"新小节那片没有 DOM 格子 → 看着没网格线"。 */
     try{syncWindowNow(true)}catch(e){}
     commitEdit();
   };
+  const setBars=b=>{
+    const steps=clamp(Math.round(b),1,MAX_BARS)*SPB();
+    if(proj.steps===steps&&barPending===steps){syncBarsUI();return}
+    barPending=steps;
+    /* 立刻反馈：数字与滑块先跟手，重活留给下一帧（同一帧内多次调用只做一次） */
+    syncBarsUI();
+    requestAnimationFrame(applyBarsNow);
+  };
   function syncBarsUI(){
-    const b=Math.max(1,Math.round(proj.steps/SPB()));
+    const b=Math.max(1,Math.round((barPending||proj.steps)/SPB()));
     if(UI.barsN){UI.barsN.value=b;if(UI.barsV)UI.barsV.textContent=b}
   }
   UI.barsN.addEventListener('change',()=>setBars(+UI.barsN.value||4));
   UI.barsN.addEventListener('input',()=>{const v=clamp(+UI.barsN.value||1,1,MAX_BARS);if(UI.barsV)UI.barsV.textContent=v});
-  // 小节 +/-：支持“长按连续增减”；键盘/触屏单击仍只加一次
-  const setBarsRel=d=>setBars(clamp(Math.round(proj.steps/SPB())+d,1,MAX_BARS));
+  // 小节 +/-：支持"长按连续增减"；键盘/触屏单击仍只加一次
+  const setBarsRel=d=>setBars(clamp(Math.round((barPending||proj.steps)/SPB())+d,1,MAX_BARS));
   let barHoldT=null,barClickGuard=false;
   const barHoldEnd=()=>{if(barHoldT){clearInterval(barHoldT);barHoldT=null}};
   const barHoldStart=(d,ev)=>{
@@ -216,6 +233,12 @@ export function bindTopControls(){
       editBtn.focus();                       // 键盘可回：关掉菜单后焦点回到触发按钮
     });
   }
+  /* ---------- 自动保存状态指示 + 保存/历史菜单 ----------
+     状态点 + 文案由 onSaveState 推送（见 io/project.js）。这里只做两件事：
+       ① 把状态渲染成"未保存 / 已自动保存 HH:MM:SS / 保存失败：原因"；
+       ② 提供一个入口进"历史版本"（归档快照），让自动保存可被验证、可回退。
+     菜单开关沿用主菜单那套互斥逻辑（打开前关掉其它顶栏菜单、点别处收起、Esc 收起）。 */
+  bindSaveUI();
   // 轨道列绘制
   const tl=$('#timeline');
   tl.addEventListener('pointerdown',cellPaintStart);
@@ -281,6 +304,73 @@ export function bindTopControls(){
   document.addEventListener('keydown',onKey);
   document.addEventListener('keyup',onKeyUp);
   bindScrubber();
+}
+/* =========================================================================
+   自动保存 UI（状态指示 + 保存/历史菜单）
+   ========================================================================= */
+function saveStatusText(st){
+  if(st.status==='error')return st.msg?('保存失败：'+st.msg):'保存失败';
+  if(st.status==='pending')return '未保存…';
+  if(st.status==='saved'&&st.ts)return '已保存 '+clockText(st.ts);
+  return '已就绪';
+}
+function renderSaveStatus(st){
+  const btn=$('#saveBtn'),txt=$('#saveTxt'),head=$('#saveMenuHead');
+  if(!btn)return;
+  btn.dataset.state=st.status||'idle';
+  if(txt)txt.textContent=saveStatusText(st);
+  btn.title=(st.status==='pending'
+      ? '有改动，正在自动保存（约 1 秒内写入浏览器）'
+      : st.status==='error'
+        ? '自动保存失败：'+(st.msg||'未知原因')+' —— 建议用「导出工程文件」备份'
+        : '自动保存已开启：改动后约 1 秒写入浏览器（刷新不丢）')
+    +'｜历史版本 '+st.archiveCount+' 份';
+  if(head){
+    head.textContent=(st.status==='error'
+        ? '⚠ '+(st.msg||'保存失败')
+        : (st.status==='saved'&&st.ts)
+          ? '自动保存已开启 · 上次 '+clockText(st.ts)
+          : '自动保存已开启')
+      +' · 历史 '+st.archiveCount+' 份';
+  }
+}
+function bindSaveUI(){
+  const wrap=$('#saveWrap'),btn=$('#saveBtn'),menu=$('#saveMenu');
+  if(!btn||!menu)return;
+  onSaveState(renderSaveStatus);
+  renderSaveStatus(saveStatus());     // 先按当前状态刷一次，别等下一次改动才有反馈
+  btn.addEventListener('click',e=>{
+    e.stopPropagation();
+    const open=!menu.classList.contains('open');
+    const editMenu=$('#editMenu');
+    if(editMenu)editMenu.classList.remove('open');   // 与其它顶栏菜单互斥
+    UI.menu.classList.remove('open');
+    menu.classList.toggle('open',open);
+    btn.setAttribute('aria-expanded',open?'true':'false');
+  });
+  document.addEventListener('click',()=>menu.classList.remove('open'));
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Escape'||!menu.classList.contains('open'))return;
+    e.preventDefault();menu.classList.remove('open');btn.setAttribute('aria-expanded','false');btn.focus();
+  });
+  menu.addEventListener('click',e=>{
+    const mi=e.target.closest('.mi');
+    if(!mi)return;
+    menu.classList.remove('open');
+    const a=mi.dataset.sact;
+    if(a==='now'){
+      const r=autosaveNow({forceArchive:true});
+      toast(r.ok?(r.archived?'已保存，并存了一份历史版本':'已保存到浏览器'):('保存失败：'+(r.reason==='quota'?'存储空间不足':'未知原因')),r.ok?'ok':'err');
+    }else if(a==='lib'){
+      const n=prompt('存入作品库，命名：',proj.name||'未命名工程');
+      if(n!=null&&hooks.toolbar?.libSave)hooks.toolbar.libSave(n||proj.name||'未命名工程');
+    }else if(a==='history'){
+      /* 历史版本在侧栏作品库页里（复用同一处 UI，不再另开弹窗） */
+      if(hooks.toolbar?.setTab)hooks.toolbar.setTab('lib');
+      if(hooks.toolbar?.showHistory)hooks.toolbar.showHistory();
+    }
+  });
+  void wrap;
 }
 export function buildKeyBar(){
   const box=UI.keyInfo;box.innerHTML='';
@@ -553,7 +643,11 @@ export function bindExtras(){
   $('#midiFileIn').addEventListener('change',e=>{const f=e.target.files[0];if(f)importMidiUI(f);e.target.value='';});
   $('#demoBtn').addEventListener('click',()=>{
     beginEdit();
-    proj=demoProject();proj.steps=32;
+    /* proj 是 state.js 的 ES module 导出绑定（只读），这里必须走 setProj()：
+       直接 `proj=…` 会抛 TypeError: Assignment to constant variable，
+       示例工程按钮因此一直点不动（且只留一行错误、看不出原因）。 */
+    const p=demoProject();p.steps=32;
+    setProj(p);
     ensurePatSizes();afterLoad();commitEdit();
     toast('已载入示例工程','ok','clapper');
   });
@@ -579,14 +673,18 @@ export function bindExtras(){
     }
   });
   refreshUndoUI();
-  // Ctrl+S
+  // Ctrl+S：立即保存（含一份历史快照），与浏览器"保存网页"冲突所以 preventDefault
   document.addEventListener('keydown',e=>{
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();quickSave()}
   });
 }
 
 /* 自注册（STEP 6c 收敛）：sidebar 的删除按钮经 hooks.toolbar 反向调用；
-   setPosStatus 一并挂上，供 timeline.js（升降号回显）反向调用——toolbar 已 import timeline，不能再反向 import */
-hooks.toolbar={delTrack,addTrack,clearAll,humanizeAll,clearSelTrack,setPosStatus};
+   setPosStatus 一并挂上，供 timeline.js（升降号回显）反向调用——toolbar 已 import timeline，不能再反向 import。
+   libSave / setTab / showHistory：供顶栏「保存 ▾」菜单跳进侧栏作品库与历史版本（sidebar 已 import toolbar，不能反向 import）。 */
+hooks.toolbar={delTrack,addTrack,clearAll,humanizeAll,clearSelTrack,setPosStatus,
+  libSave:(name)=>hooks.sidebar?.libSave?.(name),
+  setTab:(t)=>hooks.sidebar?.setTab?.(t),
+  showHistory:()=>hooks.sidebar?.showHistory?.()};
 /* 载入工程后的统一刷新（io/project 经 hooks.afterLoad 反向调用） */
 export function afterProjectLoad(){ structural(true);buildKeyBar();syncAllUI();renderInspector();relabelRows(); setPosStatus('就绪'); }

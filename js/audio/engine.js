@@ -2,7 +2,7 @@
 import { proj, actx, A, stepDurNow, SPB, beatSteps, patRows, rowMidiAt } from '../core/state.js';
 import { clamp, icon, UI } from '../core/util.js';
 import { KIT, PREC_U_PER_STEP, trackRows, freqOf, pruneAcc } from '../core/theory.js';
-import { ensureAudio, setGate } from './master.js';
+import { ensureAudio, setGate, setAudioBusy, scheduleAudioSleep } from './master.js';
 import { synthVoice, reserveVoices } from './synth.js';
 import { drumVoice, metronomeClick } from './drum.js';
 
@@ -54,10 +54,16 @@ export function fireStep(step,time,ctx,dest,straightTime){
   // 本步所有旋律轨的并发起音，一次性整组预留声部：
   // 同一时刻的和弦/垫音要么一起出声、要么一起被限流，不会出现“半截和弦”，
   // 也不会出现后一轨的预留把前一轨刚排上的音抢掉。
+  /* proj._ev 与 proj.tracks 必须等长，但**不能假设它一定等长**：
+     只要有一条载入/导入路径漏调 rebuildEvents（或 tracks 在 _ev 之后被加长），
+     proj._ev[ti] 就是 undefined，而下面还要取 [step] —— 直接抛
+     "Cannot read properties of undefined (reading '1')" 让整个播放挂掉（实测复现过）。
+     这里用 ?? 兜底：一步取不到事件就当这一步没有事件，最多这一拍不发声，绝不整机崩。 */
+  const evRow=(ti)=>{ const r=(proj._ev&&proj._ev[ti])||null; return r?r[step]:null };
   let stepNeed=0;
   proj.tracks.forEach((t,ti)=>{
     if(t.mute)return; if(solo&&!t.solo)return; if(t.kind==='drum')return;
-    const evs=proj._ev[ti][step];
+    const evs=evRow(ti);
     if(evs&&evs.length)stepNeed+=evs.length;
     if(t.prec&&t.prec.length){
       const rows=patRows(t);
@@ -69,7 +75,7 @@ export function fireStep(step,time,ctx,dest,straightTime){
   proj.tracks.forEach((t,ti)=>{
     if(t.mute)return; if(solo&&!t.solo)return;
     const base={vol:t.vol,pan:t.pan,rev:t.reverb,dly:t.delay,bus:t.id};
-    const evs=proj._ev[ti][step];
+    const evs=evRow(ti);
     if(evs&&evs.length){
       for(const e of evs){
       if(t.kind==='drum'){
@@ -154,6 +160,7 @@ export function finishSong(){
   if(Play.timer){clearInterval(Play.timer);Play.timer=null}
   Play.playing=false;Play.q=[];Play.uiStep=-1;
   Play.hasStarted=false;      // 曲终＝停止态：下次按播放从 0 开始（否则会停在最后一格反复收尾）
+  setAudioBusy(false);
   playheadHooks.setPlayUI?.(false);
   if(A&&actx){
     const g=A.gate.gain, now=actx.currentTime;
@@ -166,6 +173,7 @@ export function finishSong(){
   playheadHooks.clearStepGlow?.();
   playheadHooks.updatePos?.(proj.steps-1);
   UI.posSub.innerHTML=icon('music')+'已结束';
+  scheduleAudioSleep(3500);   // 等收尾淡出+混响尾巴走完，再把音频线程挂起（见 master.js 注释）
 }
 /** 暂停：保留 Play.step 与 hasStarted —— 下次按播放从原位置继续。
     与 stopPlay()（明确停止 / 回到停止态，下次从头）区分开：
@@ -175,13 +183,19 @@ export function pausePlay(){
   Play.playing=false;Play.q=[];Play.uiStep=-1;
   if(Play.timer){clearInterval(Play.timer);Play.timer=null}
   setGate(false,true);
+  setAudioBusy(false);
   playheadHooks.setPlayUI?.(false);
   /* 注意：不调 updatePos(0)（那是 stopPlay 的"回到开头"语义），暂停时位置显示必须停在原处 */
+  scheduleAudioSleep(3500);   // 暂停后音频线程也该睡（尾巴衰减完再挂起）
   return true;
 }
 export function togglePlay(){
   if(Play.playing){pausePlay();return}
-  if(!ensureAudio())return;
+  /* 顺序要紧：先把"正在播"的标记立起来，再 ensureAudio（它会 resume + 取消待执行的挂起）。
+     反过来写会有一个真实的竞态：一个已经排队等着的挂起回调可能刚好在 resume 之后执行，
+     把正在播放的上下文又挂起 —— 表现就是"按了播放、播放头在动但没有声音"。 */
+  setAudioBusy(true);
+  if(!ensureAudio()){setAudioBusy(false);return}
   setGate(true,true);
   /* 修复 Bug 1：原来这里无条件 Play.step=0，导致"暂停后按播放"从头开始。
      现在只有"没播放过"（初始态 / stopPlay 后 / 曲终后）才归零；暂停态保持 Play.step 继续。
@@ -201,7 +215,9 @@ export function stopPlay(){
   Play.hasStarted=false;      // 停止＝回到停止态：下次按播放从 0 开始（暂停不经过这里，见 togglePlay）
   if(Play.timer){clearInterval(Play.timer);Play.timer=null}
   setGate(false,true); // 快速收声：不再拖长音
+  setAudioBusy(false);
   playheadHooks.setPlayUI?.(false);
   playheadHooks.clearStepGlow?.();
   playheadHooks.updatePos?.(0);
+  scheduleAudioSleep(3500);   // 停止后音频线程挂起（尾巴衰减完再关，避免把混响尾巴切掉）
 }
