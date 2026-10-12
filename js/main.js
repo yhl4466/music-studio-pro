@@ -8,7 +8,7 @@ import { visLoop } from './ui/seek.js';
 import { bindTopControls, bindExtras, syncAllUI, buildKeyBar, syncBpmUI, afterProjectLoad, showHelp } from './ui/toolbar.js';
 import { setTab, renderInspector } from './ui/sidebar.js';
 import { structural, paintAll, relabelRows } from './ui/timeline.js';
-import { beginEdit, commitEdit, refreshUndoUI, markDirtyUI, loadAutosave } from './io/project.js';
+import { beginEdit, commitEdit, refreshUndoUI, markDirtyUI, loadAutosave, installAutosaveGuards, autosaveNow, flushAutosave } from './io/project.js';
 import { loadShareFromHash } from './io/share.js';
 import { bindVizLink } from './ui/vizlink.js';
 
@@ -21,6 +21,9 @@ hooks.inspector={render:renderInspector,selectTab:setTab};        // timeline �
 hooks.ui={structural,paintAll,buildKeyBar,syncBpmUI,markDirtyUI}; // ai / io/midi → timeline
 hooks.undo={beginEdit,commitEdit};                               // ai → io/project
 hooks.afterLoad=afterProjectLoad;                                // io/project → ui（实现在 ui/toolbar.js）
+/* 自动保存：关页/切后台强制落盘 + 20s 兜底比对（覆盖"某条编辑路径忘了 markDirtyUI"的情况） */
+installAutosaveGuards();
+hooks.save={now:autosaveNow,flush:flushAutosave};                // 其它模块需要立即落盘时用
 
 /* =========================================================================
    批 C 第四部分：数字 tick（值变化时上滑淡入）
@@ -99,6 +102,10 @@ async function boot(){
       setTimeout(()=>{try{showHelp()}catch(e){}},700);
     }
   }
+  /* 启动即落一份**会话基线**：keep:true 表示"本次打开时的样子"，不会被后续编辑合并覆盖，
+     新会话开头就把工程改坏也能回到这里。刻意**不传 forceArchive** ——
+     反复刷新时基线会被合并更新（而不是每次刷新堆一份），但永远保得住内容。 */
+  try{ autosaveNow({keep:true}) }catch(e){}
 }
 
 boot();

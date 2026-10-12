@@ -15,9 +15,9 @@ export const KIT_MIDI={0:36,1:38,2:39,3:42,4:46,5:45,6:37,7:49};
 /* 收集一轨的 MIDI 事件：[tick,note,status,vel]；含节奏细分的精确时值音符。
    PPQ=480 → stepT=120/16分，uTick=stepT/PREC_U_PER_STEP=2；3 连音 durU=80 → 80*2=160 tick = 1/3 拍 */
 export function notesOfTrack(t,ti,stepT){
-  const out=[];const arr=proj._ev[ti];
+  const out=[];const arr=(proj._ev&&proj._ev[ti])||[];
   const velOf=v=>Math.max(1,Math.min(127,Math.round((v==null?.8:v)*127)));
-  if(arr)arr.forEach((es,s)=>{es.forEach(e=>{
+  if(arr)arr.forEach((es,s)=>{if(!es)return;es.forEach(e=>{
     if(t.kind==='drum'){
       const note=(KIT_MIDI[e.kit]!==undefined)?KIT_MIDI[e.kit]:36;
       out.push([s*stepT,note,90,velOf(e.vel)]);

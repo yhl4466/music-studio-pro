@@ -6,11 +6,11 @@ import { $, $$, el, clamp, ri, rf, chance, pick, toast, icon, UI, hooks } from '
 import { KIT_COLORS } from '../audio/drum.js';
 import { auditionTrack } from '../audio/synth.js';
 import { applyTrackVolBus } from '../audio/master.js';
-import { Play, stopPlay } from '../audio/engine.js';
+import { Play, stopPlay, rebuildEvents } from '../audio/engine.js';
 import { AI, AI_STYLES, aiSeedLocked, setAiSeedLocked } from '../ai/styles.js';
 import { aiComposeAll, aiRegenTrack, aiExtendTrack, aiStyleTransfer } from '../ai/compose.js';
-import { LIB_KEY, libRead, libWrite, libMeta } from '../core/storage.js';
-import { serializeProject, applyProjectData, loadAutosave, undoH, setPendingPre, beginEdit, commitEdit, afterLoad, refreshUndoUI } from '../io/project.js';
+import { LIB_KEY, libRead, libWrite, libMeta, archiveRead, archiveStats, archiveClear, relTime, clockText, ARCHIVE_MAX } from '../core/storage.js';
+import { serializeProject, applyProjectData, loadAutosave, undoH, setPendingPre, beginEdit, commitEdit, afterLoad, refreshUndoUI, saveStatus, restoreArchive, deleteArchive, onSaveState } from '../io/project.js';
 import { structural, paintAll, previewDrum, changeShift, setTrackWidth, setTrackAnchor, convertRegionRhythm } from './timeline.js';
 
 /* 图标名映射（FEAT-V6/T5 批 2 第二步）：风格数据的 icon 字段仍是 emoji（ai/styles.js 未授权），
@@ -320,6 +320,10 @@ export function renderLibTab(){
   add.addEventListener('click',()=>{libSaveEntry(nm.value||proj.name||'未命名工程')});
   sr.appendChild(add);b.appendChild(sr);
   b.appendChild(el('div','small','保存在本机浏览器（localStorage）。同一作品可存多个副本，支持载入 / 重命名 / 另存 / 删除。'));
+  /* ---------- 自动存档历史（时间线）----------
+     这一块是"自动保存"的可验证证据与回退手段：没有它，用户既看不到存没存，
+     改坏了也无路可退（只能靠 20 步撤销栈）。放在作品库页顶部、默认展开。 */
+  b.appendChild(renderHistorySection());
   b.appendChild(el('div','h2','我的作品（'+list.length+'）'));
   if(!list.length){
     b.appendChild(el('div','modeNote','还没有存档。用 '+icon('sparkle')+' AI 成曲或手动编好后，点上面的「保存当前工程」。'));
@@ -353,6 +357,98 @@ export function renderLibTab(){
   }
   box.appendChild(b);
 }
+/* =========================================================================
+   8c-2. 自动存档历史（时间线快照）
+   -------------------------------------------------------------------------
+   数据来自 core/storage.js 的 archive*；每次自动保存若满足"内容变化 + 时间间隔"
+   就会新增一份。这里给出：当前存档时间、历史条目列表（相对时间 + 摘要）、
+   一键恢复 / 删除 / 清空。恢复走 io/project.js 的 restoreArchive（可再撤销）。
+   ========================================================================= */
+function renderHistorySection(){
+  const wrap=el('div','insBox');
+  wrap.style.padding='8px';
+  const head=el('div','insHead');
+  const dot=el('div','tgIcon',icon('restore'));
+  dot.style.background='rgba(124,108,255,.14)';dot.style.color='var(--acc2)';
+  head.appendChild(dot);
+  const info=el('div','',{style:'flex:1;min-width:0'});
+  info.appendChild(el('div','',{style:'font-weight:700;font-size:12.5px',text:'自动存档历史'}));
+  const st=saveStatus();
+  const stats=archiveStats();
+  info.appendChild(el('div','',{style:'font-size:10px;color:var(--dim);margin-top:2px',
+    text:(st.ts?('上次保存 '+clockText(st.ts)+' · '):'')+stats.count+' 份 · 约 '+(stats.bytes/1024).toFixed(0)+' KB'}));
+  head.appendChild(info);
+  wrap.appendChild(head);
+  wrap.appendChild(el('div','small','改动后约 1 秒自动写入浏览器；历史快照按内容变化自动累积（最多 '+ARCHIVE_MAX+' 份）。改坏了可以从这里回退。'));
+
+  const list=archiveRead();
+  if(!list.length){
+    wrap.appendChild(el('div','modeNote','还没有历史快照。继续编辑一会儿就会自动出现；也可以在顶栏「保存」菜单里点「立即保存一次」。'));
+    return wrap;
+  }
+  const rowTop=el('div','rowBtns');
+  const clr=el('button','btn sm danger',icon('trash')+' 清空历史');
+  clr.addEventListener('click',()=>{
+    if(!confirm('清空全部 '+list.length+' 份历史快照？当前工程不受影响。'))return;
+    if(clearArchives()){toast('已清空历史快照','ok');renderLibTab()}
+    else toast('清空失败','err');
+  });
+  rowTop.appendChild(clr);
+  wrap.appendChild(rowTop);
+
+  list.slice(0,12).forEach((en,i)=>{
+    const card=el('div','',{style:'border:1px solid var(--hair);border-radius:var(--r-sm);padding:6px 8px;margin-top:6px;background:var(--well)'});
+    const line=el('div','',{style:'display:flex;align-items:center;gap:8px'});
+    line.appendChild(el('span','',{style:'font-size:11.5px;font-weight:600',text:(i===0?'最新 · ':'')+(en.keep?'本次打开时 · ':'')+relTime(en.ts)}));
+    line.appendChild(el('span','tag-mini',(en.data.length/1024).toFixed(0)+' KB'));
+    card.appendChild(line);
+    if(en.meter)card.appendChild(el('div','',{style:'font-size:10px;color:var(--dim);margin-top:2px',text:en.meter}));
+    const row=el('div','rowBtns');
+    const rs=el('button','btn sm',icon('restore')+' 恢复');
+    rs.addEventListener('click',()=>{
+      if(!confirm('恢复到「'+relTime(en.ts)+'」的快照？\n（当前状态会先自动保存，且这次恢复可以用 Ctrl+Z 撤销）'))return;
+      const r=restoreArchive(en.id);
+      if(r.ok){toast('已恢复到 '+relTime(en.ts)+' 的版本','ok','restore');renderLibTab()}
+      else toast('恢复失败：'+(r.reason==='missing'?'该快照已不存在':'数据损坏'),'err');
+    });
+    const del=el('button','btn sm danger',icon('trash'));
+    del.title='删除这份快照';
+    del.addEventListener('click',()=>{ if(deleteArchive(en.id)){toast('已删除该快照');renderLibTab()} });
+    row.appendChild(rs);row.appendChild(del);
+    card.appendChild(row);
+    wrap.appendChild(card);
+  });
+  if(list.length>12)wrap.appendChild(el('div','small','（仅显示最近 12 份，共 '+list.length+' 份）'));
+  return wrap;
+}
+/** 顶栏「保存 ▾ → 查看历史版本」的落点：切到作品库页并滚到历史区 */
+export function showHistory(){
+  renderLibTab();
+  try{
+    const first=UI.sideBody.querySelector('.insBox');
+    if(first&&first.scrollIntoView)first.scrollIntoView({block:'start'});
+  }catch(e){}
+}
+/* 归档列表的"活性"：自动保存在后台新增快照时要让列表跟上，否则用户盯着不动的列表，
+   会以为自动存档没在工作。两条触发：① 保存状态变化；② 每 30s 刷新相对时间（"3 分钟前"→"5 分钟前"）。
+   重渲染会重建 DOM → 先存滚动位置，避免用户正在翻阅时被弹回顶端。 */
+let _libRerenderTimer=null;
+function scheduleLibRerender(){
+  if(uiTab!=='lib')return;                 // 不在作品库页就别白刷
+  if(_libRerenderTimer)return;
+  _libRerenderTimer=setTimeout(()=>{
+    _libRerenderTimer=null;
+    if(uiTab!=='lib')return;
+    try{
+      const sc=UI.sideBody?UI.sideBody.scrollTop:0;
+      renderLibTab();
+      if(UI.sideBody)UI.sideBody.scrollTop=sc;
+    }catch(e){}
+  },900);
+}
+onSaveState(()=>scheduleLibRerender());
+setInterval(()=>{ if(uiTab==='lib')scheduleLibRerender() },30000);
+
 export function libSaveEntry(name){
   try{
     const data=serializeProject();
@@ -373,6 +469,9 @@ export function libOpenEntry(id){
     if(Play.playing)stopPlay();
     applyProjectData(JSON.parse(en.data));
     afterLoad();
+    /* 载入作品后必须重建事件表（否则 proj._ev 仍是上一首的，播放会越界）。
+       afterLoad→afterProjectLoad 里没有这一步，历史上靠调用方补，容易漏。 */
+    rebuildEvents();
     // 载入作品是全新上下文：清空撤销/重做历史，避免误回到上一首
     undoH.stack=[];undoH.redo=[];setPendingPre(null);
     refreshUndoUI();
@@ -442,6 +541,20 @@ export function renderAiTab(){
   rndBtn.addEventListener('click',()=>{AI.seed=(Math.random()*1e9)|0;aiComposeAll()});
   aiMain.appendChild(rndBtn);
   b.appendChild(aiMain);
+  /* —— 免责声明（用户要求：这里的"AI"不是真 AI，必须写明）——
+     事实依据：js/ai/* 是**规则/乐理驱动**的确定性算法（风格参数 + 和声/节奏/旋律规则 + 种子化伪随机
+     makeRng），没有模型推理、没有联网、没有训练数据。同一颗种子复现同一首歌。
+     措辞要点：① 不说"AI 生成"这类容易误解的说法；② 说明它不会上传作品；
+     ③ 提醒成品是草稿、请自行复核（涉及原创性/版权归属）；④ 给一个可查的地方。
+     用 .aiNote 类做低调样式（比 .small 更弱，带左边框），避免抢主操作按钮的注意力。 */
+  {
+    const note=el('div','aiNote');
+    note.innerHTML=icon('warn')+' <b>关于"AI 作曲"</b>：本功能是<b>内置乐理规则算法</b>生成（风格模板 + 和声/节奏/旋律规则 + 随机种子），'
+      +'<b>并非神经网络或大模型</b>，不联网、不上传你的作品。同一颗种子必然复现同一首曲子。'
+      +'产出的编曲是<b>可直接编辑的草稿</b>，仅作灵感起点 —— 正式发布前请自行复核与修改，'
+      +'涉及原创性与版权归属的判断由使用者负责。';
+    b.appendChild(note);
+  }
   // —— 风格迁移（批 C：收进可折叠块，默认收起） ——
   {
     const fw=el('div','insBox');
@@ -469,3 +582,7 @@ export function renderAiTab(){
     '・不满意 → 点「换种子再创作」，或切到 <b>'+icon('faders')+' 轨道/混音</b> 单轨重写'));
   box.appendChild(b);
 }
+
+/* 自注册：toolbar 的「保存 ▾」菜单需要跳进侧栏的作品库 / 历史版本。
+   sidebar 已 import toolbar，不能再反向 import → 走 hooks.sidebar 反注册。 */
+hooks.sidebar={setTab,libSave:libSaveEntry,showHistory,renderLibTab};
