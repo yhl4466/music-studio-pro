@@ -36,7 +36,12 @@ const BMAX=128, DMAX=128;        // 频段数 / 历史深度上限（数组按�
 const ROW_RATE=60;               // 历史帧率（行/秒），与 FPS 解耦；64 行 ≈ 1.07 秒
 const ROW_MAX_STEP=4;            // 单帧最多补几行（卡顿后不追补一大段历史）
 const F_LO=40, F_HI=16000;       // 对数频率轴的上下沿（Hz）
-const NYQUIST=22050;             // bin→Hz 参考（44.1kHz 的奈奎斯特，与瀑布图/径向频谱同源）
+const NYQUIST_FALLBACK=22050;    // 取不到实际采样率时的兜底（44.1kHz 的奈奎斯特）
+/* 奈奎斯特跟随实际采样率（可视化预渲染允许 22.05kHz）。 */
+function nyqOf(audio){
+  const sr=Number(audio&&audio.sampleRate);
+  return (isFinite(sr)&&sr>0)?sr/2:NYQUIST_FALLBACK;
+}
 const FLOOR_BYTE=6, WIN_BYTE=200;// byte→0..1 的显示映射：掐掉 -100..-80dB 的底噪，206 以上到顶
 const GAMMA=.85;                 // 显示曲线（<1 提亮中段，矮柱不至于消失）
 const U_MIN=.02;                 // 低于该归一高度的柱子整根不画（静音段大片剔除，省填充）
@@ -250,15 +255,17 @@ function ensureBg(view,w,h,hue){
   _c.bgw=pw; _c.bgh=ph; _c.bghue=hue;
 }
 
-/* ---------- 频率轴 LUT（频段数 / 频点数变化时重建） ---------- */
-function buildLut(B,bins){
-  if(_c.lutB===B&&_c.lutBins===bins)return;
-  _c.lutB=B; _c.lutBins=bins;
+/* ---------- 频率轴 LUT（频段数 / 频点数 / 奈奎斯特变化时重建） ----------
+   nyq 按实际采样率传（可视化预渲染可能只有 22.05kHz）；缓存键带上 nyq 以免复用旧映射。 */
+function buildLut(B,bins,nyq){
+  const NY=clamp(Number(nyq)||NYQUIST_FALLBACK,1000,192000);
+  if(_c.lutB===B&&_c.lutBins===bins&&_c.lutNyq===NY)return;
+  _c.lutB=B; _c.lutBins=bins; _c.lutNyq=NY;
   const ratio=Math.pow(F_HI/F_LO,1/B);
   for(let i=0;i<B;i++){
     const f0=F_LO*Math.pow(ratio,i), f1=f0*ratio;
-    let b0=Math.floor(f0/NYQUIST*bins);
-    let b1=Math.ceil(f1/NYQUIST*bins);
+    let b0=Math.floor(f0/NY*bins);
+    let b1=Math.ceil(f1/NY*bins);
     b0=clamp(b0,0,bins-1); b1=clamp(b1,b0+1,bins);
     _c.lutLo[i]=b0; _c.lutHi[i]=b1;
   }
@@ -414,7 +421,7 @@ export const forest={
     /* 1) 采样并落行：按 dt 累加，1/ROW_RATE 秒一行（与 FPS 解耦） */
     const fd=(audio&&audio.freqData)?audio.freqData:null;
     if(fd&&fd.length){
-      buildLut(B,fd.length);
+      buildLut(B,fd.length,nyqOf(audio));
       _c.acc+=dt;
       const st=1/ROW_RATE;
       let guard=0;

@@ -276,21 +276,24 @@ label.vz-lab>.vz-select{font-size:var(--fs-body)}
 .vz-pRange::-moz-range-track,.vz-range::-moz-range-track{height:4px;border-radius:var(--r-xs);
   background:linear-gradient(90deg,var(--sig),var(--sig)) 0/var(--fill,50%) 100% no-repeat,var(--well)}
 .vz-pRange::-moz-range-thumb,.vz-range::-moz-range-thumb{width:12px;height:12px;border:none;border-radius:var(--r-xs);background:var(--sig)}
-/* 复选框（任务 6）：16×16 / 2px 圆角 / --ctl-bg2 底 / 选中 --sig 实底 + 白色勾（纯 CSS 画） */
+/* 复选框（任务 6）：16×16 / 2px 圆角 / --ctl-bg2 底 / 选中 --sig 实底 + 白色勾（纯 CSS 画）
+   注意：**每一条都要带上 #vzCoverHd 这个 id 选择器**。
+   #vzCoverHd 的父元素是 .vz-menuItem（不在 .vz-cover-hd / .vz-pCheck 之类下面），
+   所以漏掉 id 就只剩前两条兜底 → 表现为"能点、底色变蓝、但里面没有勾"（实测就是这个 bug）。 */
 .vz-pCheck,.vz-cover-hd>input,#vzCoverHd{
   -webkit-appearance:none;appearance:none;width:16px;height:16px;flex:none;cursor:pointer;
   border:1px solid var(--hair-2);border-radius:var(--r-xs);background-color:var(--ctl-bg2);
   background-image:none;background-position:center;background-size:11px 11px;background-repeat:no-repeat;
   transition:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out);
 }
-.vz-pCheck:hover,.vz-cover-hd>input:hover{
+.vz-pCheck:hover,.vz-cover-hd>input:hover,#vzCoverHd:hover{
   border-color:var(--sig);
 }
-.vz-pCheck:checked,.vz-cover-hd>input:checked{
+.vz-pCheck:checked,.vz-cover-hd>input:checked,#vzCoverHd:checked{
   background-color:var(--sig);border-color:var(--sig);
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'><path d='M5 13l4.5 4.5L19 7'/></svg>");
 }
-.vz-pCheck:focus-visible,.vz-cover-hd>input:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.vz-pCheck:focus-visible,.vz-cover-hd>input:focus-visible,#vzCoverHd:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
 
 /* ---------- FEAT-V4 / T3.5：封面预览弹窗（配色全部走 theme.css 变量，不新增颜色字面量） ---------- */
 /* 通用小按钮：顶部工具条与弹窗内共用（此前只有 .vz-play / .vz-cancel 两种专用按钮） */

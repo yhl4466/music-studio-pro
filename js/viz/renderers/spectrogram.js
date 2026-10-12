@@ -27,9 +27,17 @@ import { register } from '../registry.js';
 /* ---------- 常量 ---------- */
 const COL_RATE=60;                 // 列率（列/秒），与 FPS 解耦；60 列/秒时 20 秒窗 = 1200 列（T2.3 由 30 提升）
 const COL_MAX_STEP=6;              // 单帧最多补几列（= dt 上限 0.1s × 列率，长时间卡顿后不追补一大堆历史）
-const NYQUIST=22050;               // 频率刻度参考：44.1kHz 的奈奎斯特（见文件头"已知限制"）
+const NYQUIST_FALLBACK=22050;       // 取不到实际采样率时的兜底（44.1kHz 的奈奎斯特）
 const GRID_HZ=[50,100,200,500,1000,2000,5000,10000];   // 频率刻度线位置（Hz）
 const FALLBACK={acc:'#00d9ff',acc2:'#7c6cff',acc3:'#ff7ac8',txt:'#e9eefb'};
+/* 频率轴必须跟随**实际采样率**，不能再硬编码 44.1kHz：
+   可视化预渲染允许用 22.05kHz 出图（封面/指纹的整曲分析为此能省一半时间），
+   此时奈奎斯特是 11025Hz —— 硬编码会让整条频率轴与刻度线错位一倍。
+   采样率从 audio.sampleRate 读；主循环每帧填一次（读的是 actx.sampleRate，属性访问，无布局开销）。 */
+function nyqOf(audio){
+  const sr=Number(audio&&audio.sampleRate);
+  return (isFinite(sr)&&sr>0)?sr/2:NYQUIST_FALLBACK;
+}
 /* 强度映射常量。analyser 默认 min/maxDecibels = -100/-30dB，byte 值即线性映射：
    byte 0 = -100dB、byte 255 = -30dB，因此 byte 73 ≈ -80dB —— 可视窗口从 -80dB 起，掐掉底噪。 */
 const FLOOR_N=73/255;              // 可视窗口下沿（≈ -80dB）
@@ -138,30 +146,37 @@ function buildPalette(scheme){
 }
 
 /* ---------- 对数频率轴：bin → 行 LUT ---------- */
-/* 行 0 = 顶部 = 奈奎斯特；行 rows-1 = 底部 = minFreq。每行取覆盖 bin 的均值。 */
-function buildLut(rows,minFreq,bins){
+/* 行 0 = 顶部 = 奈奎斯特；行 rows-1 = 底部 = minFreq。每行取覆盖 bin 的均值。
+   nyq 由调用方按实际采样率传入（见 nyqOf）；LUT 缓存键必须带上 nyq，
+   否则采样率切换后（44.1k ⇄ 22.05k）会复用旧的频率映射、整条轴错位。 */
+function buildLut(rows,minFreq,bins,nyq){
+  const NY=clamp(Number(nyq)||NYQUIST_FALLBACK,1000,192000);
   const n=Math.max(1,rows|0);
-  if(!_c.lutStart||_c.lutStart.length!==n){ _c.lutStart=new Int32Array(n); _c.lutEnd=new Int32Array(n) }
-  const lo=clamp(Number(minFreq)||60,20,NYQUIST*.8);
-  const ratio=NYQUIST/lo;
-  const span=Math.max(1e-6,Math.log(ratio));
-  for(let r=0;r<n;r++){
-    const kLo=n-1-r;                                   // 该行的下边界（第 kLo 条对数刻度）
-    const fLo=lo*Math.exp(kLo/n*span);
-    const fHi=lo*Math.exp((kLo+1)/n*span);
-    let b0=Math.floor(fLo/NYQUIST*bins);
-    let b1=Math.ceil(fHi/NYQUIST*bins);
-    b0=clamp(b0,0,bins-1); b1=clamp(b1,b0+1,bins);
-    _c.lutStart[r]=b0; _c.lutEnd[r]=b1;
-  }
-  /* 刻度线：位置用归一化 yn（0 顶部 … 1 底部）存，绘制时再乘逻辑高度——
-     因为条带分辨率是设备像素（rows = 逻辑高 × DPR），不能把行号直接当逻辑 y 用。 */
-  const g=_c.grid; g.length=0;
-  for(let i=0;i<GRID_HZ.length;i++){
-    const f=GRID_HZ[i];
-    if(f<=lo||f>=NYQUIST)continue;
-    const yn=1-Math.log(f/lo)/span;
-    g.push({yn,text:f>=1000?((f/1000)+'k'):String(f)});
+  const lo=clamp(Number(minFreq)||60,20,NY*.8);
+  if(_c.lutNyq!==NY||_c.lutLo!==lo||_c.lutBins!==bins||!_c.lutStart||_c.lutStart.length!==n){
+    _c.lutNyq=NY; _c.lutLo=lo; _c.lutBins=bins;
+    if(!_c.lutStart||_c.lutStart.length!==n){ _c.lutStart=new Int32Array(n); _c.lutEnd=new Int32Array(n) }
+    const ratio=NY/lo;
+    const span=Math.max(1e-6,Math.log(ratio));
+    for(let r=0;r<n;r++){
+      const kLo=n-1-r;                                   // 该行的下边界（第 kLo 条对数刻度）
+      const fLo=lo*Math.exp(kLo/n*span);
+      const fHi=lo*Math.exp((kLo+1)/n*span);
+      let b0=Math.floor(fLo/NY*bins);
+      let b1=Math.ceil(fHi/NY*bins);
+      b0=clamp(b0,0,bins-1); b1=clamp(b1,b0+1,bins);
+      _c.lutStart[r]=b0; _c.lutEnd[r]=b1;
+    }
+    /* 刻度线：位置用归一化 yn（0 顶部 … 1 底部）存，绘制时再乘逻辑高度——
+       因为条带分辨率是设备像素（rows = 逻辑高 × DPR），不能把行号直接当逻辑 y 用。 */
+    const g=_c.grid; g.length=0;
+    const span2=Math.max(1e-6,Math.log(NY/lo));
+    for(let i=0;i<GRID_HZ.length;i++){
+      const f=GRID_HZ[i];
+      if(f<=lo||f>=NY)continue;
+      const yn=1-Math.log(f/lo)/span2;
+      g.push({yn,text:f>=1000?((f/1000)+'k'):String(f)});
+    }
   }
   _c.rows=n; _c.bins=bins; _c.lastMin=lo; _c.lastBins=bins; _c.lastRows=n;
 }
@@ -290,7 +305,8 @@ export const spectrogram={
     if(!_c.strip||_c.sh!==rows)buildStrip(hist,rows);
     if(_c.lastHist!==hist)buildStrip(hist,rows);
     if(_c.lastScheme!==scheme)buildPalette(scheme);
-    if(_c.lastMin!==minF||_c.lastRows!==rows||_c.lastBins!==binsNow)buildLut(rows,minF,binsNow);
+    const nyq=nyqOf(audio);
+    if(_c.lastMin!==minF||_c.lastRows!==rows||_c.lastBins!==binsNow||_c.lutNyq!==nyq)buildLut(rows,minF,binsNow,nyq);
     if(!_c.sctx)return;
 
     if(fd&&fd.length){

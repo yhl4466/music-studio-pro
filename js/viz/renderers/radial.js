@@ -27,7 +27,13 @@ const NMAX=128;                    // 扇形数上限（= params.bars 的 max）
 const NMIN=32;
 const FMIN=30;                     // 对数频率轴下沿（Hz）
 const FMAX=20000;                  // 对数频率轴上沿（Hz）
-const NYQUIST=22050;               // bin→Hz 参考（44.1kHz/2，与瀑布图同源）
+const NYQUIST_FALLBACK=22050;      // 取不到实际采样率时的兜底（44.1kHz/2）
+/* 奈奎斯特跟随实际采样率：可视化预渲染允许 22.05kHz 出图（封面/指纹整曲分析省一半时间），
+   此时是 11025Hz。硬编码会让频率轴与图形一起错位。 */
+function nyqOf(audio){
+  const sr=Number(audio&&audio.sampleRate);
+  return (isFinite(sr)&&sr>0)?sr/2:NYQUIST_FALLBACK;
+}
 const MAX_DPR=3;
 const GAP=.18;                     // 扇形间空隙占扇宽的比例
 const BREATH=.07;                  // 低频包络对整体半径的呼吸幅度
@@ -116,15 +122,19 @@ function buildTables(N){
     _c.barCol[i]='rgb('+(r|0)+','+(g|0)+','+(b|0)+')';
   }
 }
-/* 对数频率轴 → 每扇形覆盖的 bin 区间（扇形数/频点数变化时重建） */
-function buildLut(N,bins){
-  if(_c.lutN===N&&_c.lutBins===bins)return;
-  _c.lutN=N; _c.lutBins=bins;
+/* 对数频率轴 → 每扇形覆盖的 bin 区间（扇形数/频点数/奈奎斯特变化时重建）
+   nyq 必须按**实际采样率**传（可视化预渲染允许 22.05kHz → 奈奎斯特 11025Hz）：
+   硬编码 22050 会让 >11kHz 的频率全部挤进最后一格，上半部分图形失真。
+   LUT 缓存键带上 nyq，避免采样率切换后复用旧映射。 */
+function buildLut(N,bins,nyq){
+  const NY=clamp(Number(nyq)||NYQUIST_FALLBACK,1000,192000);
+  if(_c.lutN===N&&_c.lutBins===bins&&_c.lutNyq===NY)return;
+  _c.lutN=N; _c.lutBins=bins; _c.lutNyq=NY;
   const ratio=Math.pow(FMAX/FMIN,1/N);
   for(let i=0;i<N;i++){
     const f0=FMIN*Math.pow(ratio,i), f1=f0*ratio;
-    let b0=Math.floor(f0/NYQUIST*bins);
-    let b1=Math.ceil(f1/NYQUIST*bins);
+    let b0=Math.floor(f0/NY*bins);
+    let b1=Math.ceil(f1/NY*bins);
     b0=clamp(b0,0,bins-1); b1=clamp(b1,b0+1,bins);
     _c.bLo[i]=b0; _c.bHi[i]=b1;
   }
@@ -222,7 +232,7 @@ export const radial={
     const dt=clamp(Number(audio&&audio.dt)||1/60,0,.25);
 
     buildTables(N);
-    buildLut(N,(fd&&fd.length)?fd.length:1024);
+    buildLut(N,(fd&&fd.length)?fd.length:1024,nyqOf(audio));
 
     /* ---- 每帧取值：逐扇形 bin 均值 → dB 归一 → 快攻慢放 EMA ---- */
     const val=_c.val,inv=1/255;

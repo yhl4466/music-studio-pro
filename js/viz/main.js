@@ -6,12 +6,13 @@
 import { $, clamp } from '../core/util.js';
 import * as dataMod from './data.js';
 import { proj, loadProject, showEmpty, hideEmpty, describe, info, makeDemoProject } from './data.js';
-import { renderProject, diagnoseRender, analyzeNodes, exportProjectJson, cancelRender, isRendering, estimate } from './audio.js';
+import { renderProject, diagnoseRender, analyzeNodes, exportProjectJson, cancelRender, isRendering, estimate, makeEta, workUnits, SAMPLE_RATE } from './audio.js';
 import * as transport from './transport.js';
 import { register, list, select, current, setSurface, setUI } from './registry.js';
 import { createFeatures } from './features.js';   // FEAT-V2/T1：频域特征/节拍提取（纯计算，无 DOM）
 import { analyze } from './analyzer.js';          // FEAT-V4/T2：整曲离线分析（V4 封面/指纹的数据源，纯计算）
 import { bindCoverUI, invalidateCoverFeatures } from './coverUI.js';  // FEAT-V4/T3.5：封面预览弹窗（只画图与下载，无业务逻辑）
+import * as qrMod from './qrcode.js';        // 真·二维码编码器（分享卡片用；__vz.qr.selfTest() 可自检）
 /* 渲染器自注册：该模块顶层调用 registry.register()，不再形成循环导入 */
 import './renderers/waveform.js';
 import './renderers/spectrogram.js';
@@ -139,20 +140,84 @@ window.addEventListener('unhandledrejection',e=>{const r=e.reason;setHint('Promi
 const ctx=cv?cv.getContext('2d'):null;
 const view={w:0,h:0,dpr:1}; // 逻辑像素尺寸（draw 里用逻辑坐标绘图）
 
-/* ---------- 画布尺寸（逻辑像素 → DPR 像素），只在尺寸变化时重建变换 ---------- */
+/* ---------- 画布尺寸（逻辑像素 → 后端像素），只在尺寸/缩放变化时重建变换 ----------
+   ==========================================================================
+   这里是可视化页"渲染很慢、像卡住"的根因：后端分辨率原来直接 = 逻辑尺寸 × devicePixelRatio
+   （上限 3），而所有渲染器的成本都与**像素数**成正比（逐柱 fill / 逐粒 sprite / 逐帧 drawImage）。
+   实测（headless Edge，1600×900 视口）：
+     DPR=1 → 后端 1600×770 = 1.2M 像素，forest 60 FPS
+     DPR=2 → 后端 3200×1488 = 4.8M 像素，forest 33 FPS（p50 30.6ms）
+     DPR=3 → 后端 4800×2232 = 10.7M 像素，forest 17 FPS（p50 60ms）  ← 就是"卡住"
+   而 JS 侧其实很轻：forest 的 draw 自报 2.96ms/帧，其余时间全在浏览器光栅化。
+   所以对策是**控制后端像素总量**，而不是优化逐个渲染器的算法：
+     ① 像素预算 MAX_BACKING_PX：后端像素数不超过它（1600×900 视口下 ≈1.55x 缩放，
+        肉眼与 2x 几乎无差别，但光栅化工作量只剩 1/3）；
+     ② 硬上限 MAX_SCALE：即使屏幕很大也不会自动放大到 2x 以上；
+     ③ 自适应分辨率：帧耗时持续偏高时自动把缩放降一档（最多降到 MIN_SCALE），
+        恢复正常后逐档升回 —— 高分屏 + 全屏 + 森林这种组合也能自己救回来。
+   view.w/h 仍是**逻辑像素**（渲染器全部按逻辑坐标绘图），只是 ctx 的变换里多了一个分辨率系数，
+   所以所有渲染器与参数都不用改。 */
+const MAX_BACKING_PX=2900000;   // 后端像素预算（≈ 1600×900 @1.42x / 1920×1080 @1.18x）
+const MAX_SCALE=2;              // 后端缩放硬上限（超过 2x 对观感几乎无收益，代价却是平方增长）
+const MIN_SCALE=.6;             // 自适应下限（再低就开始糊了）
+/* 自适应用"帧耗时 EMA"做判据，阈值刻意取得很保守：
+   只有**持续**慢到 40ms/帧（<25 FPS）才降档，而 15ms（≈60 FPS）就逐步升回。
+   为什么保守：这一层是给"高分辨率 + 慢显卡"的兜底，不是常规手段 ——
+   常规收益来自上面的像素预算（确定性的、可预测的）。阈值太松会在软件光栅化环境里
+   一路降到最低档还回不来，那比"稍微慢一点"更糟。 */
+const ADAPT_DOWN_MS=40;         // 帧耗时 EMA 超过它才降一档
+const ADAPT_UP_MS=15;           // 低于它就尝试升回一档
+const ADAPT_COOLDOWN_MS=1200;   // 两次调整之间的最小间隔（避免抖动）
+const ADAPT_SETTLE_MS=2500;     // 切渲染器/开始播放后，先让它稳定这么久再动分辨率
+let adaptiveScale=MAX_SCALE;    // 自适应系数（1 = 只用像素预算，不额外降级）
+let lastAdaptAt=0;
+let adaptHoldUntil=0;           // 在此之前不做任何调节（并让 EMA 重新收敛）
+
+function computeScale(rect){
+  const dpr=clamp(window.devicePixelRatio||1,1,MAX_SCALE);
+  let s=dpr;
+  const budget=Math.sqrt(MAX_BACKING_PX/Math.max(1,rect.width*rect.height));
+  if(s>budget)s=budget;
+  if(s>adaptiveScale)s=adaptiveScale;
+  return clamp(s,MIN_SCALE,MAX_SCALE);
+}
 function resize(){
   if(!cv||!ctx)return;
   const rect=cv.getBoundingClientRect();
-  const dpr=clamp(window.devicePixelRatio||1,1,3);
   const w=Math.max(1,Math.round(rect.width)), h=Math.max(1,Math.round(rect.height));
-  const pw=Math.round(w*dpr), ph=Math.round(h*dpr);
+  const scale=computeScale(rect);
+  const pw=Math.max(1,Math.round(w*scale)), ph=Math.max(1,Math.round(h*scale));
   if(cv.width!==pw||cv.height!==ph){
     cv.width=pw; cv.height=ph;      // 赋值会重置变换与状态
   }
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  view.w=w; view.h=h; view.dpr=dpr;
+  ctx.setTransform(scale,0,0,scale,0,0);
+  view.w=w; view.h=h; view.dpr=scale;
   setSurface(ctx,view);                  // 渲染器 resize 由 registry 转达
   resizeRenderer(ctx,view);
+}
+/* 让自适应重新开始：回到满分辨率、丢掉被污染的帧耗时 EMA、并给一段稳定期。
+   必须存在，否则这个机制会变成一个"单向棘轮" —— 加载音频/切渲染器时那几帧的
+   长耗时会把 EMA 顶高，于是永久停在低分辨率（实测会一路降到 0.6 再也升不回来）。 */
+function resetAdaptive(){
+  adaptiveScale=MAX_SCALE;
+  frameMsEma=0;
+  adaptHoldUntil=nowMs()+ADAPT_SETTLE_MS;
+  lastAdaptAt=0;
+}
+/* 自适应分辨率调节：在主循环里按帧耗时 EMA 调 adaptiveScale。
+   只在真正需要重设画布尺寸时调用 resize()（改 adaptiveScale 本身不触发）。 */
+function adaptResolution(ms){
+  if(!cv||!ctx)return;
+  const t=nowMs();
+  if(t<adaptHoldUntil)return;
+  if(t-lastAdaptAt<ADAPT_COOLDOWN_MS)return;
+  let next=adaptiveScale;
+  if(ms>ADAPT_DOWN_MS)next=Math.max(MIN_SCALE,adaptiveScale-.15);
+  else if(ms<ADAPT_UP_MS&&adaptiveScale<MAX_SCALE)next=Math.min(MAX_SCALE,adaptiveScale+.1);
+  next=Math.round(next*100)/100;
+  if(Math.abs(next-adaptiveScale)<.005)return;
+  adaptiveScale=next; lastAdaptAt=t;
+  resize();
 }
 function resizeRenderer(c,v){
   const r=current();
@@ -439,9 +504,16 @@ function paintAnalyzeProgress(pct,text){
 }
 /**
  * 整曲分析入口。
- * @param {{forceFull?:boolean}} [opts] forceFull=true 时不弹确认框、直接全曲重渲染
+ * @param {{forceFull?:boolean, sampleRate?:number, restoreAudio?:boolean}} [opts]
+ *        forceFull=true 时不弹确认框、直接全曲重渲染
  *        （封面/指纹这类"整曲肖像"用途：只渲染前 30 秒没有意义，见 T3.5 修复 2）
+ *        sampleRate：分析专用渲染的采样率。封面/指纹要渲染**整曲**，而频率轴成本与采样率线性相关，
+ *                    分析又只用 RMS/频谱/音级直方图这些低频为主的特征 →
+ *                    用 22050 能把整曲渲染时间砍掉约一半（渲染器频率轴已改为读实际采样率）。
+ *        restoreAudio：分析完成后是否自动把播放缓冲恢复成"用户选的播放长度 + 全采样率"
+ *                      （默认 true）。否则可视化页会一直播着 11kHz 上限的分析音频。
  */
+const ANALYSIS_SR=22050;              // 整曲分析专用采样率（约省一半时间，见上）
 async function analyzeProject(opts={}){
   if(analyzing){ setHint('分析中','已有一个分析任务在进行'); return null }
   if(!dataOk||!proj||!Array.isArray(proj.tracks)||!proj.tracks.length){
@@ -449,10 +521,13 @@ async function analyzeProject(opts={}){
     return null;
   }
   const forceFull=!!(opts&&opts.forceFull);
+  const wantSr=(opts&&opts.sampleRate!=null)?opts.sampleRate:ANALYSIS_SR;
+  const restoreAudio=(opts&&opts.restoreAudio===false)?false:true;
   const est=estimate(proj,{});
   let buf=transport.getBuffer();
   const have=buf?transport.getDuration():0;
   let partial=false;
+  let lowQualityBuf=false;            // 本次是否为了分析而渲染了低采样率缓冲
 
   if(!buf||have<est.full-0.5){
     const msg=(buf
@@ -464,13 +539,15 @@ async function analyzeProject(opts={}){
     else if(window.confirm(msg))doRender=true;
     if(doRender){
       transport.pause();
-      const r=await renderAndLoad(proj,{maxSeconds:null});
+      /* 整曲 + 分析专用采样率：这是封面/指纹耗时的主要来源，降采样直接省掉约一半 */
+      const r=await renderAndLoad(proj,{maxSeconds:null,sampleRate:wantSr});
       if(!r||r.status!=='ok'){
         setHint('分析已取消','全曲渲染未完成'+(r&&r.message?('：'+r.message):''));
         return null;
       }
       buf=transport.getBuffer();
       if(!buf){ setHint('分析已取消','全曲渲染没有产出音频'); return null }
+      lowQualityBuf=!!(wantSr&&wantSr<SAMPLE_RATE);
     }else if(!buf){
       setHint('分析已取消','没有可用音频');
       return null;
@@ -502,6 +579,15 @@ async function analyzeProject(opts={}){
                 '起音 '+feat.onsets.length+' · 调式 '+(feat.key?feat.key.name:'未推断')+
                 ' · 鼓点 '+feat.drumHits+(partial?' · 仅已渲染部分':'')+
                 ' · 耗时 '+ms+' ms · 结果见 __vz.cover.last',5000);
+    /* 分析用的是降采样缓冲（11kHz 上限），不能就这样留给播放 —— 恢复到"用户选的播放长度 + 全采样率"。
+       特征已经在 lastFeatures 里了，所以恢复失败也不影响封面/指纹（只影响播放质量）。 */
+    if(lowQualityBuf&&restoreAudio){
+      try{
+        setHintInfo('分析完成','正在恢复播放音质…','按你选的长度重新渲染 44.1kHz 版本',3000);
+        const rr=await renderAndLoad(proj,lenOpts());
+        if(!rr||rr.status!=='ok')setHintInfo('提示','播放音质未恢复','可重新选择渲染长度来恢复',4000);
+      }catch(e){ /* 恢复失败不影响已产出的特征 */ }
+    }
     return feat;
   }catch(e){
     setBar(0,'失败');
@@ -600,8 +686,9 @@ function boot(){
   setUI({renderParams});                   // 注入参数面板钩子（registry 不依赖 DOM）
   renderPicker();                          // 用注册表填充渲染器下拉
   /* 渲染器切换：V1 只有一项下拉时漏了这条监听，导致选中项改了却不换渲染器。
-     select() 内部完成 dispose → init → 参数面板重建，主循环每帧重读 current()，下一帧即生效。 */
-  if(pick)pick.addEventListener('change',()=>crossFadeCanvas(()=>select(pick.value)));
+     select() 内部完成 dispose → init → 参数面板重建，主循环每帧重读 current()，下一帧即生效。
+     切渲染器时重置自适应（各渲染器成本差一个量级，沿用上一个的档位会平白糊一屏）。 */
+  if(pick)pick.addEventListener('change',()=>{ resetAdaptive(); crossFadeCanvas(()=>select(pick.value)) });
   {
     const all=list();
     if(all.length&&!current())select(all[0].id);      // 首次选中：入场淡入留给"数据就绪"那一刻（见 initData）
@@ -635,12 +722,69 @@ function setBarDone(){
   if(renderLab)renderLab.textContent='100%';
 }
 
-/* ---------- 预渲染长度下拉（默认 30 秒：秒见效果；切换即用新长度重渲染） ----------
-   批 B 任务 4：下拉本身移进齿轮菜单（#vzLen 原样保留，逻辑不变），这里顺带接线菜单开关。 */
-const DEFAULT_MAX_SECONDS=30;
-const MAX_SECONDS_UI=600;
+/* ---------- 预渲染长度（默认跟随曲长；用户改过就记住） ----------
+   旧版把默认写死 30 秒，于是：
+     · 10 秒的短曲也要渲染 30 秒（多等 3 倍，而且后 20 秒全是静音）；
+     · 5 分钟的长曲又只渲染前 30 秒，用户得自己再去菜单里改。
+   现在：首次进页面用「全曲」（超过 AUTO_FULL_MAX_SEC 的曲子改用 30 秒，避免一进来就等太久），
+   用户一旦手动选过就写进 localStorage.vizRenderLen，以后按选择走（'full' 也记）。
+   另外把"预计渲染多久"提前算出来放在提示行里 —— 不用等到点下去才知道要等一分钟。 */
+const DEFAULT_MAX_SECONDS=30;             // 长曲的首次默认值
+const MAX_SECONDS_UI=600;                 // 下拉里可输入/可选的上限（秒）
+const AUTO_FULL_MAX_SEC=60;               // 曲长不超过它 → 首次默认渲染全曲
+const LEN_KEY='vizRenderLen';
 let maxSeconds=DEFAULT_MAX_SECONDS;
+let lenTouched=false;                     // 用户是否手动选过（选过就不再自动跟随曲长）
+/* 返回值语义（三者必须分清，之前把"无存档"和"用户选了全曲"混成同一个 null，
+   导致长曲永远拿不到默认的 30 秒预览）：
+     undefined → 没有有效存档（交给"跟随曲长"的自动默认）
+     null      → 用户明确选过"全曲"
+     number    → 用户选过的秒数 */
+function readSavedLen(){
+  try{
+    const v=localStorage.getItem(LEN_KEY);
+    if(v==null||v==='')return undefined;   // 无存档
+    if(v==='full')return null;             // 明确选了全曲
+    const n=Number(v);
+    return (isFinite(n)&&n>0)?n:undefined; // 非法值当作无存档
+  }catch(e){ return undefined }
+}
+function writeSavedLen(){
+  try{ localStorage.setItem(LEN_KEY,maxSeconds==null?'full':String(maxSeconds)) }catch(e){}
+}
+/** 载入工程后决定这次渲染多长；返回是否因此改动了长度 */
+function chooseRenderLength(p){
+  const saved=readSavedLen();
+  if(saved!==undefined){                  // 有有效存档：按用户上次的选择
+    maxSeconds=saved; lenTouched=true;
+    return false;
+  }
+  const fullSec=Number(estimate(p,{}).seconds)||0;
+  const want=(fullSec>0&&fullSec<=AUTO_FULL_MAX_SEC)?null:DEFAULT_MAX_SECONDS;
+  const changed=(want!==maxSeconds);
+  maxSeconds=want; lenTouched=false;
+  if(lenSel)lenSel.value=(maxSeconds==null?'full':String(maxSeconds));
+  return changed;
+}
 function lenOpts(){ return maxSeconds==null?{}:{maxSeconds} }
+/** 长度文案（下拉用/提示行用） */
+function lenLabel(){
+  if(maxSeconds==null)return '全曲';
+  return maxSeconds+' 秒';
+}
+/** 预渲染预计耗时：用 ETA 的口径（振荡器-秒）估算，给人一个"要等多久"的预期 */
+function predictRenderText(p){
+  try{
+    const e=estimate(p,lenOpts());
+    const sec=Math.max(0.1,Number(e.seconds)||0);
+    const eta=makeEta(sec,{workU:workUnits(p)});
+    const total=Math.round(eta.initialTotal*1000);
+    const partial=!!e.partial;
+    return (partial?'渲染前 '+Math.round(sec)+' 秒':'渲染整曲 '+Math.round(sec)+' 秒')+
+           ' · 预计约 '+Math.max(1,Math.round(total/1000))+' 秒'+
+           (eta.from==='history-u'?'（按本机历史速度）':'');
+  }catch(err){ return '' }
+}
 /* 顶栏菜单（设置 / 下载）统一开关：点按钮切、点外面关、Esc 关（Esc 优先关菜单，不停播放） */
 const menus=[];
 function closeMenus(except){
@@ -674,13 +818,24 @@ function bindLengthUI(){
     closeMenus(null);
   });
   if(!lenSel)return;
-  lenSel.value=maxSeconds==null?'full':String(maxSeconds);
+  /* 下拉初值必须在**这里**就与存档对齐：bindLengthUI 早于 chooseRenderLength 运行
+     （后者要等工程载入才知道曲长），否则刷新后下拉会先显示默认的 30 秒，
+     与"上次选的全曲"不一致 —— 用户会以为选择没被记住。 */
+  {
+    const saved0=readSavedLen();
+    if(saved0!==undefined){ maxSeconds=saved0; lenTouched=true }
+    lenSel.value=(maxSeconds==null?'full':String(maxSeconds));
+  }
   lenSel.addEventListener('change',()=>{
     const v=lenSel.value;
     maxSeconds=(v==='full')?null:clamp(Number(v)||DEFAULT_MAX_SECONDS,5,MAX_SECONDS_UI);
+    lenTouched=true;
+    writeSavedLen();                                    // 记住这次选择，下次进页面就用它
     closeMenus(null);                                   // 选完就收起菜单，动作与结果在同一拍
-    if(!dataOk){ setHint('渲染长度已设好','载入工程后生效','当前：'+(maxSeconds==null?'全曲':maxSeconds+' 秒')); return }
+    if(!dataOk){ setHint('渲染长度已设好','载入工程后生效','当前：'+lenLabel()); return }
     if(rendering){ setHint('渲染进行中','取消后再切换长度',''); return }
+    const pred=predictRenderText(proj);
+    if(pred)setHint('渲染长度：'+lenLabel(),pred,'');
     void renderAndLoad(proj,lenOpts());
   });
   void rec;
@@ -702,7 +857,12 @@ async function initData(){
   /* 批 B 任务 1：位置区副行改作状态提示，工程摘要（describe()）进它的 title —— 信息不丢，只是不再占版面 */
   if(posSub){ posSub.textContent=STATE_WORD.idle; posSub.title=describe() }
   if(cardBody)cardBody.textContent='';
+  /* 渲染长度：先读存档，没有存档就按曲长自动决定（短曲直接全曲，长曲用 30 秒预览），
+     并把"预计要等多久"写进提示行 —— 不用点下去才知道。 */
+  chooseRenderLength(p);
+  const pred=predictRenderText(p);
   revealCanvas();                     // 画布入场（批 A 任务 7）：数据就绪这一刻淡入 + 轻推镜
+  if(pred)setHint('渲染长度：'+lenLabel(),pred,info.steps?('工程 '+info.steps+' 步'):'');
   await renderAndLoad(p,lenOpts());
 }
 
@@ -721,12 +881,21 @@ let frames=0,fpsT=0,raf=0,lastTs=0;      // lastTs：上一帧时间戳，用于
 /* FEAT-V2/T1：同一管线再扩一路频域 + 特征（缓冲与 tdBuf 同生命周期，帧内仍零分配）
    第三参数契约：{timeDomain, freqData, features, beat, dt, frameNo}；V1 波形只读 timeDomain，不受影响 */
 const feats=createFeatures();             // 常驻实例：snapshot/beat 的对象引用自创建起不变
-const audioData={timeDomain:null,freqData:null,features:feats.snapshot,beat:feats.beat,dt:0,frameNo:0,projectBpm:0};
+const audioData={timeDomain:null,freqData:null,features:feats.snapshot,beat:feats.beat,dt:0,frameNo:0,projectBpm:0,
+  sampleRate:44100};   // 频率轴用：可视化预渲染允许非 44.1kHz（见 renderProject 的 sampleRate 选项）
 let tdBuf=null, fdBuf=null, tdSize=0, tdAnalyser=null;
+let frameMsEma=0;                          // 帧耗时 EMA（自适应分辨率用）
+let wasPlaying=false;                      // 播放状态沿（开始播放时重置自适应）
+function nowMs(){ return (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now() }
 function frame(ts){
   raf=requestAnimationFrame(frame);
   if(!ctx)return;
-  if(transport.isPlaying()){
+  const playing=transport.isPlaying();
+  /* 开始播放这一刻重置自适应：加载/起播的几帧本来就长，不该被算成"这台机器跑不动"。
+     顺带保证"暂停→改分辨率→播放"这条路径不会把上次的降级一直带着。 */
+  if(playing&&!wasPlaying)resetAdaptive();
+  wasPlaying=playing;
+  if(playing){
     transport.notifyTime();          // 播放时每帧按 actx.currentTime 刷新位置/进度条/时间显示
     if(hintTimer>0&&ts>=hintTimer){ hintTimer=0; if(hint&&!hint.dataset.busy)onState(transport.state()) }
   }
@@ -741,6 +910,9 @@ function frame(ts){
     }
     an.getByteTimeDomainData(tdBuf);           // 复用同一实例，无每帧分配
     an.getByteFrequencyData(fdBuf);
+    /* 实际采样率（给渲染器的频率轴用）：读 actx.sampleRate 是纯属性访问，无布局开销。
+       必须每帧填 —— 预渲染可能用 22.05kHz 出图，之后又换回 44.1kHz。 */
+    audioData.sampleRate=(an.context&&an.context.sampleRate)||44100;
     audioData.projectBpm=(proj&&proj.bpm>=40&&proj.bpm<=220)?proj.bpm:0;   // 工程 BPM：心率读数优先用它
     feats.update(fdBuf,dt,audioData.projectBpm);   // 频域 → 包络/起音/特征快照（内部零分配）
     audioData.dt=dt; audioData.frameNo++;
@@ -752,6 +924,14 @@ function frame(ts){
   if(current()&&current().draw)current().draw(ctx,view,an?audioData:null);
   else drawEmpty();
   needRedraw=false;                        // 消费本帧的参数变更标志（markDirty 置位）
+  /* 自适应分辨率：用"到上一帧的间隔"做 EMA（ts-lastTs 在下一帧才更新，这里用 dt 还原毫秒）。
+     只在页面可见时调节 —— 后台标签页 rAF 被暂停，量出来的"帧耗时"没有意义。
+     dt 上限截到 80ms：一次加载/切渲染器的长帧不该把 EMA 顶到几百毫秒，否则会误判成"需要降档"。 */
+  if(!document.hidden){
+    const fms=Math.min(dt*1000,80);
+    if(fms>0)frameMsEma=frameMsEma?frameMsEma*.9+fms*.1:fms;
+    adaptResolution(frameMsEma);
+  }
   frames++;
   if(fpsEl&&ts-fpsT>=500){
     const v=Math.round(frames*1000/(ts-fpsT));
@@ -772,11 +952,17 @@ window.__vz={view,list,current,select,register,data:dataMod,transport,registry:{
   dom:{stage,cv,overlay,hint,playBtn,stopBtn,cancelBtn,seek,pick,lenSel,posSub,posMain,timeEl,paramsBox},
   get renderParams(){return current()?current().params:null},
   get dataOk(){return dataOk},
+  /* 自适应分辨率状态（自检用）：当前后端缩放 / 帧耗时 EMA / 后端像素数 */
+  get resolution(){ return {scale:+view.dpr.toFixed(3),logical:view.w+'x'+view.h,
+    backing:cv?cv.width+'x'+cv.height:'-', px:cv?cv.width*cv.height:0, frameMs:+frameMsEma.toFixed(1)} },
   get rendering(){return rendering},
   get audioBusy(){return isRendering()},
   get audio(){return audioData},              // 自检：freqData 长度 / features / beat / dt / frameNo
   cancelRender,
   fmtTime,
+  /* 二维码自检句柄：__vz.qr.selfTest() 校验编码器（格式信息 BCH / 定位角 / 时序 / 掩码 / 容量边界）。
+     分享卡片右下角现在印的是**真码**（可扫），所以这个自检值得留着随时能跑。 */
+  qr:qrMod,
   /* FEAT-V4/T2：整曲分析自检句柄（T3/T4 会在此基础上加封面/指纹）
      - __vz.cover.analyze()：走完整流程（不足整曲时会弹 confirm 询问是否全曲重渲染）
      - __vz.cover.last：最近一次成功的 FeatureObject
