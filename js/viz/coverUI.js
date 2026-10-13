@@ -153,8 +153,11 @@ function crossFadeCover(mid){
   },120);
 }
 
-/* ---------- 绘制 ---------- */
-function render(){
+/* ---------- 绘制 ----------
+   注意：render 是 async（分享卡片渲染前要等短链就绪）。
+   所有调用点都只把它当"触发一次重绘"，不依赖返回值，所以改 async 不影响它们；
+   但重入保护 rendering=true 是在 await 之前设的，能挡住并发重入。 */
+async function render(){
   if(!el||!el.canvas)return null;
   if(!features){ setNote('还没有分析结果'); return null }
   if(rendering)return null;                    // 简单防重入：一次只画一张
@@ -165,6 +168,14 @@ function render(){
     const title=titleOf();
     features.title=title;                      // 规格要求：曲名编辑同步到 features.title（cover/fingerprint/sharecard 都会读它）
     if(kind==='sharecard'){
+      /* ⚠ 渲染卡片前必须确保短链已就绪：
+         启动时的上传是异步的，用户可能在它完成前就点开卡片 —— 那样 render() 会拿到
+         还没算出短链的 shareInfo，于是"本地数据装不下 → 只印应用地址"，
+         二维码就退化成"只能打开网站"。这正是用户反馈的现象。
+         这里等一次（通常已缓存，立即返回），保证卡片印的是短链。 */
+      if(typeof hooks.ensureShareInfo==='function'){
+        try{ await hooks.ensureShareInfo() }catch(e){}
+      }
       let si=null;
       try{ if(typeof hooks.getShareInfo==='function')si=hooks.getShareInfo() }catch(e){}
       info=generateShareCard(el.canvas,features,{

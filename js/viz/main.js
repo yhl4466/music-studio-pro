@@ -766,6 +766,13 @@ function bindCoverHooks(){
        装不下时只指向应用本身 —— 由卡片文案如实说明是哪一种，不再谎称"扫码即还原"。 */
     getShareUrl:()=>{ try{ return shareUrlForCard() }catch(e){ return '' } },
     getShareInfo:()=>shareInfoCache,
+    /* 分享卡片渲染前调用：确保短链已算好（否则卡片会退化成只印应用地址）。
+       refreshShareInfo 有缓存与并发锁，重复调用基本是立即返回。 */
+    ensureShareInfo:async()=>{
+      if(shareInfoCache&&!shareInfoCache.notReady)return shareInfoCache;
+      await refreshShareInfo();
+      return shareInfoCache;
+    },
     /* 「生成短链二维码」：强制重新上传一次（不复用缓存），返回结果供 UI 提示 */
     makeShortLink:async()=>{
       shareInfoCache=null;

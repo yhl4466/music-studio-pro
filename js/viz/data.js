@@ -8,6 +8,7 @@ import { $, clamp } from '../core/util.js';
 import { proj, setProj, newTrack, allocPat, ensurePatSizes, pruneTrackPrec, SPB, MAX_BARS } from '../core/state.js';
 import { PREC_U_PER_STEP, ROLES, ENGINE_DEF, MEL_ROWS, KIT, trackRows, degSemi } from '../core/theory.js';
 import { b64ToBytes, inflateB64, lzDecode } from '../io/share.js';
+import { fetchShortLink, shortIdFromHash } from '../io/shortlink.js';   // #p= 短链（扫码导入谱子必需）
 
 /* 归一化结果就是 core/state.js 的全局 proj；这里按同一实例再导出一次，
    让页面/测试统一从本模块取工程，避免出现“两份 proj”的隐患。 */
@@ -28,11 +29,26 @@ const intIn=(v,f,a,b)=>{const n=Math.round(num(v,f));return clamp(n,a,b)};
 const oneOf=(v,list,f)=>(list.indexOf(v)>=0?v:f);
 
 /* =========================================================================
-   1. hash 通道：#s=（裸 Base64）/ #z=（deflate-raw）/ #l=（纯 JS LZSS）
+   1. hash 通道：#s=（裸 Base64）/ #z=（deflate-raw）/ #l=（纯 JS LZSS）/ #p=（短链 ID）
+   -------------------------------------------------------------------------
+   ⚠ #p= 必须在这里解析，不能只靠 io/share.js 的 loadShareFromHash ——
+     可视化页走的是本模块的 loadProject()，而它的 hash 判断原来只认 #s=/#z=/#l=。
+     结果是：分享卡片的二维码扫出来只打开网站、**不会导入谱子**（用户实测反馈的 bug）。
+     现在 #p= 先向后端取回载荷，再交给下面同一套解码，#s=/#z=/#l= 的路径一行没改。
    ========================================================================= */
 export async function readHashJson(hash){
   const h=hash||'';
   try{
+    /* 短链：向后端换回 '#z=…' 之类的载荷，然后重入本函数解码 */
+    const sid=shortIdFromHash(h);
+    if(sid){
+      const r=await fetchShortLink(sid);
+      if(!r.ok){
+        info.reason='短链打开失败：'+(r.message||'未知原因');
+        return null;
+      }
+      return await readHashJson(r.data);
+    }
     if(h.startsWith('#s=')){
       return decodeURIComponent(escape(atob(h.slice(3))));
     }
@@ -48,7 +64,7 @@ export async function readHashJson(hash){
 /* 供“复制可视化直链”使用：可解码出 JSON 的 hash 一律原样保留，其余清空 */
 export function hashForViz(hash){
   const h=hash||'';
-  return (h.startsWith('#s=')||h.startsWith('#z=')||h.startsWith('#l='))?h:'';
+  return (h.startsWith('#s=')||h.startsWith('#z=')||h.startsWith('#l=')||shortIdFromHash(h))?h:'';
 }
 
 /* =========================================================================
