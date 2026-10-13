@@ -65,6 +65,10 @@
 这样分享卡片的二维码只需装约 60 字节的短链，**一张普通二维码就能扫出整份谱子**。
 没有配置后端时短链功能自动禁用并给出提示，其余功能完全不受影响。
 
+> 部署建议用 **Pages Functions**（`server/pages/`）而不是 Workers：实测 `workers.dev` 在国内被 DNS 污染
+> （解析到 Akamai/Meta 的 IP、连接直接超时），而 `pages.dev` 解析到真正的 Cloudflare IP、链路正常。
+> 详见 [`server/README.md`](server/README.md)。
+
 ## 关于 AI 作曲
 
 这里的“AI”指的是一套基于音乐理论的规则化生成算法，不是神经网络或大语言模型。

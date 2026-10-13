@@ -1,0 +1,18 @@
+# Wrangler 本地缓存与状态
+# ⚠ 必须忽略：server/.wrangler/cache/wrangler-account.json 里含账号 id 与账号邮箱，
+#   部署时由 `wrangler` 自动生成，属于本机状态、不该进仓库。
+.wrangler/
+**/.wrangler/
+wrangler-account.json
+
+# Node / 工具链
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

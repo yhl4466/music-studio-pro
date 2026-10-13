@@ -8,9 +8,19 @@ compatibility_date = "2024-09-23"
 # 没绑定 KV 时 Worker 仍能启动，/api/health 会返回 kv:false，前端据此提示"后端未配好"。
 [[kv_namespaces]]
 binding = "MP_KV"
-id = "REPLACE_WITH_YOUR_KV_ID"
+id = "aa5fde809e7f4e9ba3f7feb8518c84c8"
 
 # 可选：绑定自定义域（比 workers.dev 更正式，也更容易被扫码软件信任）
 # [[routes]]
 # pattern = "share.example.com"
 # custom_domain = true
+
+# 可选：Cloudflare 原生 Rate Limiting 绑定（推荐）。
+# 绑定后服务端会用它限流，**不再往 KV 写计数** —— 避免把免费档 1000 写/天烧光。
+# 不绑定也不影响使用（那时请用控制台的 WAF → Rate limiting rules 兜底，见 README）。
+# 取消下面注释即可启用（limit/period 按需调整）：
+# [[unsafe.bindings]]
+# name = "RATE_LIMIT"
+# type = "ratelimit"
+# namespace_id = "1001"
+# simple = { limit = 10, period = 60 }
