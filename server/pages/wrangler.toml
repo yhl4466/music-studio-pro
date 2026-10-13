@@ -1,11 +1,28 @@
-# Cloudflare Pages 项目配置（可选）
-# 用 `npx wrangler pages deploy . --project-name mp-share` 部署本目录。
+# Cloudflare Pages 项目配置
+# 部署：在本目录执行
+#   npx wrangler pages deploy . --project-name mp-share
 # functions/ 下的文件会自动变成 Pages Functions，无需在此声明路由。
+#
+# ⚠ pages_build_output_dir 必须存在：缺了它 wrangler 会打印
+#   "Ignoring configuration file for now" 并**整份忽略本文件** —— 那样下面的 KV 绑定也不会生效
+#   （实测踩过：health 一直返回 kv:false）。
+# 本目录没有静态文件（只有 functions/），所以指向自身即可。
 name = "mp-share"
+pages_build_output_dir = "."
 compatibility_date = "2024-09-23"
 
-# KV 绑定：Pages 里更推荐用控制台绑定（Settings → Functions → KV namespace bindings），
-# 变量名必须是 MP_KV。若想用文件声明，取消下面注释并填 id：
-# [[kv_namespaces]]
-# binding = "MP_KV"
-# id = "你的KV命名空间id"
+# KV 绑定：变量名必须正好是 MP_KV（函数里就是读 env.MP_KV）。
+# 与 Worker 共用同一个 KV 命名空间 —— 短链数据两边互通。
+[[kv_namespaces]]
+binding = "MP_KV"
+id = "aa5fde809e7f4e9ba3f7feb8518c84c8"
+
+# 可选：Cloudflare 原生 Rate Limiting 绑定（推荐）。
+# 绑定后服务端用它限流，**不再往 KV 写计数** —— 避免把免费档 1000 写/天烧光。
+# 注意 Pages 目前对 [[unsafe.bindings]] 的支持不如 Workers 完整；
+# 若这里不生效，请在控制台用 WAF → Rate limiting rules 兜底（见 ../README.md）。
+# [[unsafe.bindings]]
+# name = "RATE_LIMIT"
+# type = "ratelimit"
+# namespace_id = "1001"
+# simple = { limit = 10, period = 60 }

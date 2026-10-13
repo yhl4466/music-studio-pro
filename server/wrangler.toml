@@ -1,5 +1,8 @@
 # 分享短链后端（Cloudflare Worker + KV）
 # 部署与说明见 ./README.md
+# ⚠ 本文件是 **Worker** 的配置，别和 server/pages/wrangler.toml（Pages 用）搞混。
+#   pages_build_output_dir 只对 Pages 有意义，放在这里没用（实测踩过：加错文件导致
+#   Pages 整份忽略它自己的配置，KV 绑定不生效、health 一直返回 kv:false）。
 name = "mp-share"
 main = "worker.js"
 compatibility_date = "2024-09-23"
