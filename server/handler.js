@@ -19,28 +19,64 @@ export const ID_LEN=8;
 const ID_CHARS='abcdefghijklmnopqrstuvwxyz0123456789';
 
 /* =========================================================================
-   限流：优先用 Cloudflare 原生 Rate Limiting 绑定，**不再往 KV 写计数**
+   限流：内存滑动窗口（不碰 KV）+ 可选的 Cloudflare 原生限流绑定
    -------------------------------------------------------------------------
-   上一版把计数写进 KV，问题是：每次请求都产生一次 KV 写，而免费档只有
-   1000 写/天 —— 单个 IP 密集请求就能把当天额度吃光，之后所有人创建短链都会失败
-   （不是扣钱，是功能停摆）。所以改成：
-     ① 若绑定了 rate limiter（wrangler.toml / Pages 的绑定配置里叫 RATE_LIMIT），
-        用它 —— 在边缘判定，不消耗 KV；
-     ② 没绑定则**不做服务端限流**，把防滥用交给 Cloudflare 后台的 WAF Rate limiting 规则
-        （同样在边缘拦，免费套餐有一定额度）。这是有意的取舍：宁可少一层软限流，
-        也不能让限流把 KV 写额度烧光导致功能停摆。
+   演进过程（改之前先读，别再走回头路）：
+     第 1 版：把计数写进 KV —— 每次请求一次 KV 写，而免费档只有 1000 写/天，
+             单个 IP 密集请求就能吃光当天额度，之后**所有人**创建短链都失败。
+     第 2 版：干脆去掉服务端限流，全靠控制台 WAF —— 安全但少了一层，且要人工配。
+     第 3 版（现在）：**内存滑动窗口**。它不产生任何 KV 写，所以没有第 1 版的额度问题，
+             又能挡住最常见的"同一个 IP 猛刷"。
+   ⚠ 实测结论（2026-10，线上 main.mp-share-87y.pages.dev）：**在 Pages 上它基本拦不住**。
+     连续发 60 次 + 并行 20 次，共 120 次创建请求**全部返回 201**，一次 429 都没有。
+     原因是 Cloudflare 把请求分散到多个 isolate，每个 isolate 只看到几个请求，
+     各自的计数都远达不到阈值 —— 内存状态不跨 isolate 共享。
+     所以：**它只在"单 isolate 持续处理"的场景（本地 dev、小流量 Worker）才有意义**，
+     线上真实防刷必须靠 Cloudflare 边缘规则（见下）。
+     保留这段代码是因为它在本地/单实例下确实有效，且成本为零、不碰 KV；
+     但**不要**把它当成线上保护。
+   ★ 真正的线上防刷：控制台 Security → WAF → Rate limiting rules，
+     对 `http.request.method eq "POST" and http.request.uri.path eq "/api/p"`
+     按 IP 限制（例如 60 秒 10 次），动作 Block。这是边缘判定，不消耗 KV，跨 isolate 生效。
    ========================================================================= */
-async function rateLimited(env,req){
-  const rl=env&&env.RATE_LIMIT;
-  if(!rl||typeof rl.limit!=='function')return false;      // 未绑定 → 不限流（见上）
-  try{
-    const key=(req.headers.get('CF-Connecting-IP')||'unknown');
-    const r=await rl.limit({key});
-    return !(r&&r.success);
-  }catch(e){
-    return false;                                          // 限流器异常不能挡死正常请求
+const RL_WINDOW_MS=60*60*1000;      // 1 小时窗口
+const RL_MAX_POSTS=30;             // 每 IP 每窗口最多创建 30 条短链
+const _hits=new Map();             // ip -> number[]（时间戳）；只在 isolate 内存里
+function memoryRateLimited(ip,now){
+  const t=now||Date.now();
+  let arr=_hits.get(ip);
+  if(!arr){ arr=[]; _hits.set(ip,arr) }
+  /* 丢掉窗口外的；顺带在表太长时做一次整体清理，避免 isolate 长跑后内存膨胀 */
+  while(arr.length&&t-arr[0]>RL_WINDOW_MS)arr.shift();
+  if(_hits.size>2000){
+    for(const [k,v] of _hits){
+      while(v.length&&t-v[0]>RL_WINDOW_MS)v.shift();
+      if(!v.length)_hits.delete(k);
+    }
   }
+  if(arr.length>=RL_MAX_POSTS)return true;
+  arr.push(t);
+  return false;
 }
+async function rateLimited(env,req){
+  const ip=req.headers.get('CF-Connecting-IP')||req.headers.get('X-Forwarded-For')||'unknown';
+  /* ① 绑定了原生限流就用它（更准、跨 isolate） */
+  const rl=env&&env.RATE_LIMIT;
+  if(rl&&typeof rl.limit==='function'){
+    try{
+      const r=await rl.limit({key:ip});
+      if(r&&r.success===false)return true;
+    }catch(e){
+      /* 限流器异常不能挡死正常请求 → 落到内存限流继续保护 */
+    }
+  }
+  /* ② 内存兜底（始终生效，不碰 KV） */
+  return memoryRateLimited(ip);
+}
+/** 供自检/测试读取当前阈值 */
+export function rateLimitConfig(){ return {windowMs:RL_WINDOW_MS,max:RL_MAX_POSTS} }
+/** 仅供测试：清空内存计数 */
+export function _resetRateLimit(){ _hits.clear() }
 function cors(){
   return {
     'Access-Control-Allow-Origin':'*',

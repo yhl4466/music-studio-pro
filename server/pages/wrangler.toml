@@ -17,12 +17,11 @@ compatibility_date = "2024-09-23"
 binding = "MP_KV"
 id = "aa5fde809e7f4e9ba3f7feb8518c84c8"
 
-# 可选：Cloudflare 原生 Rate Limiting 绑定（推荐）。
-# 绑定后服务端用它限流，**不再往 KV 写计数** —— 避免把免费档 1000 写/天烧光。
-# 注意 Pages 目前对 [[unsafe.bindings]] 的支持不如 Workers 完整；
-# 若这里不生效，请在控制台用 WAF → Rate limiting rules 兜底（见 ../README.md）。
+# 可选：Cloudflare 原生 Rate Limiting 绑定。
+# 服务端**默认已有内存限流**（每 IP 每小时 30 次创建，且不消耗 KV 写额度），
+# 这里的绑定是更准的一层（跨 isolate）。不绑定也能用，只是内存限流是尽力而为。
 # [[unsafe.bindings]]
 # name = "RATE_LIMIT"
 # type = "ratelimit"
 # namespace_id = "1001"
-# simple = { limit = 10, period = 60 }
+# simple = { limit = 30, period = 3600 }
