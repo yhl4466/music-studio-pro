@@ -16,3 +16,13 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# 宣传片制作文件（作者本机使用，不属于本项目源码，不要提交）
+# · anim/        —— 分镜/动画页面与它的构建工具
+# · out/         —— 动画渲染输出（含逐帧 PNG，体积大且可再生）
+# · *_shots.cmd / play-anim.cmd —— 本机便捷脚本
+anim/
+out/
+_shots.cmd
+play-anim.cmd
+
