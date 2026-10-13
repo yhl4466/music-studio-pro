@@ -1,0 +1,16 @@
+# 分享短链后端（Cloudflare Worker + KV）
+# 部署与说明见 ./README.md
+name = "mp-share"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# KV 命名空间：先执行 `wrangler kv namespace create MP_KV`，把输出的 id 填到下面。
+# 没绑定 KV 时 Worker 仍能启动，/api/health 会返回 kv:false，前端据此提示"后端未配好"。
+[[kv_namespaces]]
+binding = "MP_KV"
+id = "REPLACE_WITH_YOUR_KV_ID"
+
+# 可选：绑定自定义域（比 workers.dev 更正式，也更容易被扫码软件信任）
+# [[routes]]
+# pattern = "share.example.com"
+# custom_domain = true

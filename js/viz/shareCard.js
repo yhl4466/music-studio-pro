@@ -300,13 +300,13 @@ function paintBottom(ctx,pal,info,shareInfo){
     ctx.fillText(ellipsize(ctx,rows[i][1],colW-24),cx2,cy2+26);
   }
   /* —— 右：URL 文本 + 真二维码 ——
-     文案必须**如实**说明二维码里到底有什么。历史教训有两层：
-       ① 原来印的是 location.origin，本地起服务时是 localhost，别人扫了打不开；
-       ② 原来写"扫码即还原工程"，但传给卡片的 url 是剥掉 hash 的裸地址，
-          二维码里根本没有工程数据 —— 从来没有"还原"过。
-     现在由 opts.shareInfo 决定文案：装得下工程数据就说"扫码即还原"，
-     装不下（213 字节上限，实测最小工程压完 851 字节，所以是常态）就说清楚
-     "扫码打开可视化页"，并提示用「分享链接」按钮发完整谱子。 */
+     文案必须**如实**说明二维码里到底有什么。踩过的坑（别再犯）：
+       ① 原来印 location.origin，本地起服务时是 localhost，别人扫了打不开；
+       ② 原来写"扫码即还原工程"，但传给卡片的是剥掉 hash 的裸地址，从来没还原过；
+       ③ 二维码容量只有 213 字节（v10-M），而压缩后最小工程 259 字节、真实作品 1.5–6 KB，
+          "把谱子塞进二维码"在原理上不可能 —— 所以现在走**后端短链**：
+          数据存服务端换 8 位 ID，二维码里只放 ~60 字节，一张普通二维码就够。
+     三种情况分别说清楚：短链可用 / 本地数据恰好装得下 / 都不行。 */
   const si=shareInfo||null;
   const qr=QR_SIZE;
   const qx=CARD_W-PAD-qr, qy=y0+(BOT_H-qr)/2;
@@ -314,7 +314,8 @@ function paintBottom(ctx,pal,info,shareInfo){
   ctx.textAlign='left'; ctx.textBaseline='alphabetic';
   ctx.font='700 13px '+FONT;
   ctx.fillStyle=alpha(pal.accent,0.80);
-  ctx.fillText(si&&si.fitsQR?'扫码还原工程':'扫码打开可视化页',urlX,y0+32);
+  const hasShort=!!(si&&si.short);
+  ctx.fillText(hasShort?'扫码即可还原谱子':(si&&si.fitsQR?'扫码还原工程':'扫码打开可视化页'),urlX,y0+32);
   ctx.font='13px '+MONO;
   ctx.fillStyle=pal.primary;
   const wrap=wrapText(ctx,info.url,urlW,3);
@@ -322,13 +323,14 @@ function paintBottom(ctx,pal,info,shareInfo){
   let ny=y0+56+wrap.length*19+6;
   ctx.font='12px '+FONT;
   ctx.fillStyle=alpha(pal.accent,0.62);
-  if(si&&si.fitsQR){
+  if(hasShort){
+    ctx.fillText('谱子已存到短链后端（'+si.short.id+'），扫码直接还原',urlX,ny);
+  }else if(si&&si.fitsQR){
     ctx.fillText('已含工程数据 '+si.kb.toFixed(1)+' KB，扫码即还原谱子',urlX,ny);
   }else if(si&&si.dataBytes>0){
-    /* 装不下：给出真实数字与替代做法，别让人以为扫了就有谱子 */
-    ctx.fillText('（谱子数据 '+si.kb.toFixed(1)+' KB，超出二维码容量 '+si.limit+' 字节）',urlX,ny);ny+=17;
+    ctx.fillText('谱子 '+si.kb.toFixed(1)+' KB，超出二维码容量；配置短链后端后即可扫码还原',urlX,ny);ny+=17;
     ctx.fillStyle=alpha(pal.accent,0.5);
-    ctx.fillText('发谱子请用主应用「分享链接」按钮',urlX,ny);
+    ctx.fillText('（当前二维码只能打开可视化页，传谱子请用主应用「分享链接」）',urlX,ny);
   }else if(info.hashKB>0){
     ctx.fillText('含分享数据 '+info.hashKB.toFixed(1)+' KB',urlX,ny);
   }

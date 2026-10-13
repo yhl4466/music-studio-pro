@@ -3,6 +3,7 @@ import { serializeProject, applyProjectData } from './project.js';
 import { proj } from '../core/state.js';
 import { toast } from '../core/util.js';
 import { resolveSiteBase, buildShareUrl } from './siteUrl.js';
+import { fetchShortLink, shortIdFromHash } from './shortlink.js';
 
 /* =========================================================================
    6c. 分享链接（压缩 JSON → Base64 → URL hash）
@@ -139,27 +140,46 @@ export function copyToClip(url,done){
 export async function loadShareFromHash(){
   try{
     const h=location.hash||'';
-    if(h.startsWith('#s=')){ // 旧版/无压缩：纯 Base64
-      const j=decodeURIComponent(escape(atob(h.slice(3))));
+    /* 短链（后端）：#p=<8位ID>。先把载荷取回来，再走下面同一套解码，
+       所以后端不需要懂任何音乐格式（见 server/worker.js 的设计说明）。 */
+    const sid=shortIdFromHash(h);
+    if(sid){
+      const r=await fetchShortLink(sid);
+      if(!r.ok){
+        /* 明确告知失败原因，别静默退回示例工程让用户以为"打开成功了" */
+        try{ toast('短链打开失败：'+r.message,'err') }catch(e){}
+        return false;
+      }
+      return applySharePayload(r.data);
+    }
+    return applySharePayload(h);
+  }catch(e){return false}
+}
+/** 把 '#s=' / '#z=' / '#l=' 载荷解码并应用到工程（短链取回后也走这里） */
+async function applySharePayload(h){
+  try{
+    const s=String(h||'');
+    if(s.startsWith('#s=')){ // 旧版/无压缩：纯 Base64
+      const j=decodeURIComponent(escape(atob(s.slice(3))));
       const data=JSON.parse(j);
       if(!data.tracks||!data.steps)return false;
       applyProjectData(data);
       return true;
     }
-    if(h.startsWith('#z=')){ // deflate 压缩（异步）
-      const txt=await inflateB64(h.slice(3));
+    if(s.startsWith('#z=')){ // deflate 压缩（异步）
+      const txt=await inflateB64(s.slice(3));
       const data=JSON.parse(txt);
       if(!data.tracks||!data.steps)throw new Error('bad');
       applyProjectData(data);
       return true;
     }
-    if(h.startsWith('#l=')){ // 纯 JS LZSS（同步、全浏览器可用）
-      const txt=lzDecode(b64ToBytes(h.slice(3)));
+    if(s.startsWith('#l=')){ // 纯 JS LZSS（同步、全浏览器可用）
+      const txt=lzDecode(b64ToBytes(s.slice(3)));
       const data=JSON.parse(txt);
       if(!data.tracks||!data.steps)throw new Error('bad');
       applyProjectData(data);
       return true;
     }
     return false;
-  }catch(e){return false}
+  }catch(e){ return false }
 }

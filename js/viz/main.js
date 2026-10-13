@@ -15,6 +15,7 @@ import { bindCoverUI, invalidateCoverFeatures } from './coverUI.js';  // FEAT-V4
 import * as qrMod from './qrcode.js';        // 真·二维码编码器（分享卡片用；__vz.qr.selfTest() 可自检）
 import { buildShareHash } from '../io/share.js';        // 复用主应用的压缩编码（deflate/LZSS 择优）
 import { resolveSiteBase, buildShareUrl, siteSourceLabel, readSiteOverride, writeSiteOverride } from '../io/siteUrl.js';  // 对外地址解析（不用 location.origin）
+import { hasApi, createShortLink, checkApi, readApiBase, writeApiBase } from '../io/shortlink.js';   // 分享短链后端（server/）
 /* 渲染器自注册：该模块顶层调用 registry.register()，不再形成循环导入 */
 import './renderers/waveform.js';
 import './renderers/spectrogram.js';
@@ -693,14 +694,22 @@ function boot(){
 const QR_BYTE_LIMIT=qrMod.QR_MAX_BYTES;   // 213
 let shareInfoCache=null;                  // {url,fullUrl,dataBytes,fitsQR,siteFrom,codec,kb}
 let shareInfoBusy=false;
-/** 同步取"当前可用的分享链接"。数据未就绪时先返回不含数据的应用地址（绝不再回落到 localhost） */
+/** 同步取"当前可用的分享链接"。
+ *  优先级：短链（后端，约 60 字节，一张二维码就够）> 本地可装下的完整链接 > 只指向应用的地址。
+ *  数据未就绪时先返回不含数据的应用地址（绝不再回落到 localhost）。 */
 function shareUrlForCard(){
-  if(shareInfoCache&&shareInfoCache.url)return shareInfoCache.url;
+  const c=shareInfoCache;
+  if(c){
+    if(c.short&&c.short.url)return c.short.url;
+    if(c.url)return c.url;
+  }
   return buildShareUrl('');
 }
-/** 异步算出"带工程数据"的分享链接与二维码适配情况 */
-async function refreshShareInfo(){
-  if(shareInfoBusy)return shareInfoCache;
+/** 异步算出"带工程数据"的分享链接与二维码适配情况
+ *  @param {boolean} [forceShort] 强制重新上传短链（用户点「生成短链二维码」时用） */
+async function refreshShareInfo(forceShort){
+  if(shareInfoBusy&&!forceShort)return shareInfoCache;
+  if(shareInfoBusy)shareInfoBusy=false;   // 强制刷新：抢过锁，用户点了按钮就该立即执行
   /* 工程还没载入时不能去序列化（serializeProject 会读 proj.tracks 并 map）——
      那时先给出"只指向应用"的链接，等数据就绪后再算完整版。 */
   if(!proj||!Array.isArray(proj.tracks)||!proj.tracks.length){
@@ -717,11 +726,21 @@ async function refreshShareInfo(){
     const dataBytes=h.hash.length;                        // 含 '#' 的字符数（hash 基本是 ASCII，≈字节数）
     const fitsQR=(dataBytes<=QR_BYTE_LIMIT);
     const url=fitsQR?fullUrl:buildShareUrl('');            // 装不下就只印应用地址，绝不印一个扫不开的码
+    /* 短链：把数据交给后端换 8 位 ID，二维码里只放 ~60 字节 → 一张普通二维码即可。
+       后端没配置 / 上传失败时都**不影响**上面的本地回退，只是没有短链可用。 */
+    let short=null,shortErr='';
+    if(hasApi()){
+      const r=await createShortLink(h.hash);
+      if(r.ok)short={id:r.id,url:buildShareUrl(r.url),bytes:r.bytes};
+      else shortErr=r.message||'短链生成失败';
+    }else{
+      shortErr='未配置后端地址';
+    }
     shareInfoCache={url,fullUrl,dataBytes,fitsQR,siteFrom:base.from,siteLabel:siteSourceLabel(base.from),
-      codec:h.codec,kb:h.kb,limit:QR_BYTE_LIMIT};
+      codec:h.codec,kb:h.kb,limit:QR_BYTE_LIMIT,short,shortErr,hasApi:hasApi()};
   }catch(e){
     shareInfoCache={url:buildShareUrl(''),fullUrl:'',dataBytes:0,fitsQR:false,
-      siteFrom:'error',siteLabel:'解析失败',codec:'',kb:0,limit:QR_BYTE_LIMIT};
+      siteFrom:'error',siteLabel:'解析失败',codec:'',kb:0,limit:QR_BYTE_LIMIT,short:null,shortErr:'解析失败'};
   }finally{
     shareInfoBusy=false;
   }
@@ -746,7 +765,15 @@ function bindCoverHooks(){
        同时把**工程数据一起编码进 hash**（能装下就装）：装得下时扫码直接还原工程，
        装不下时只指向应用本身 —— 由卡片文案如实说明是哪一种，不再谎称"扫码即还原"。 */
     getShareUrl:()=>{ try{ return shareUrlForCard() }catch(e){ return '' } },
-    getShareInfo:()=>shareInfoCache
+    getShareInfo:()=>shareInfoCache,
+    /* 「生成短链二维码」：强制重新上传一次（不复用缓存），返回结果供 UI 提示 */
+    makeShortLink:async()=>{
+      shareInfoCache=null;
+      await refreshShareInfo(true);
+      const c=shareInfoCache||{};
+      if(c.short)return {ok:true,id:c.short.id};
+      return {ok:false,message:c.shortErr||'未配置后端地址'};
+    }
   });
 }
 /* 封面弹窗之后继续 boot 的其余接线（拆出来只是为了让上面这段钩子独立可读） */
@@ -945,6 +972,33 @@ function bindSiteUrlUI(){
     paint();
     void refreshShareInfo();
   });
+  /* ---------- 短链后端地址 ---------- */
+  const apiInp=$('#vzApiBase'),apiSave=$('#vzApiSave'),apiTest=$('#vzApiTest'),apiHint=$('#vzApiHint');
+  if(apiInp){
+    const paintApi=(msg)=>{
+      apiInp.value=readApiBase();
+      if(apiHint)apiHint.textContent=msg||(readApiBase()
+        ?'已配置：短链可用（二维码里只放 8 位 ID，一张普通二维码即可）'
+        :'留空则短链不可用（其余功能不受影响）。');
+    };
+    paintApi();
+    apiSave.addEventListener('click',()=>{
+      const v=apiInp.value.trim();
+      if(!writeApiBase(v)){ paintApi('保存失败：浏览器存储不可用'); return }
+      const b=readApiBase();
+      paintApi(b?('已保存：'+b):'已清空，短链不可用');
+      /* 换后端要重算：短链 ID 是在旧后端创建的，不能继续用 */
+      shareInfoCache=null;
+      void refreshShareInfo();
+    });
+    apiTest.addEventListener('click',()=>{
+      if(!readApiBase()){ paintApi('请先填写后端地址'); return }
+      paintApi('正在测试连通…');
+      void checkApi().then(r=>{
+        paintApi(r.ok?('后端正常（'+readApiBase()+'）'):('后端不可用：'+r.message));
+      });
+    });
+  }
 }
 
 /* ---------- 第 2 步：数据装载（hash 优先 → localStorage.vizProject）→ 第 3/4 步：预渲染并载入 ---------- */

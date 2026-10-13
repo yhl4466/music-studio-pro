@@ -412,12 +412,6 @@ label.vz-lab>.vz-select{font-size:var(--fs-body)}
 .vz-cover-card.sc{width:min(1040px,96%)}
 .vz-cover-body.sc{padding:6px}
 .vz-cover-body.sc .vz-cover-canvas{width:100%;height:auto;max-width:1000px;border-radius:var(--r-xs)}
-/* 谱子二维码图纸（.sq）：宽高随二维码张数变化（2×2 / 3×2 / 6×N 网格），
-   所以要给一块比分享卡片更大的横向空间，并让画布整体等比缩放、居中。
-   ⚠ 预览缩放不影响可扫性判断：图纸本身是整数像素绘制的，缩放只在显示层。 */
-.vz-cover-card.sq{width:min(1120px,96%)}
-.vz-cover-body.sq{padding:6px}
-.vz-cover-body.sq .vz-cover-canvas{width:100%;height:auto;max-width:1080px;border-radius:var(--r-xs)}
 
 .vz-cover-actions{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3)}
 .vz-cover-seed{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:var(--fs-label);letter-spacing:var(--ls-wide);color:var(--mut)}

@@ -10,6 +10,8 @@
      本地起服务时那是 localhost，别人扫了/点了都打不开。自行部署请改这两行。 -->
 <link rel="canonical" href="https://yhl4466.github.io/music-studio-pro/visualizer.html">
 <meta name="mp-share-base" content="https://yhl4466.github.io/music-studio-pro/">
+<!-- 分享短链后端地址（Cloudflare Worker，见 server/）。留空则短链功能自动禁用，其余不受影响。 -->
+<meta name="mp-api-base" content="">
 <title>音乐可视化 · 智能音乐工坊 PRO</title>
 <link rel="stylesheet" href="./css/theme.css">
 <link rel="stylesheet" href="./css/viz.css">
@@ -88,6 +90,18 @@
         <button class="vz-mi" id="vzSiteSave" type="button">保存地址</button>
         <button class="vz-mi" id="vzSiteReset" type="button">恢复默认</button>
       </div>
+      <div class="vz-menuDiv" aria-hidden="true"></div>
+      <div class="vz-menuItem">
+        <label class="vz-menuLab">短链后端
+          <input class="vz-inp" id="vzApiBase" type="url" inputmode="url" spellcheck="false"
+            placeholder="https://mp-share.xxx.workers.dev" aria-label="分享短链后端地址">
+        </label>
+      </div>
+      <div class="vz-menuHint" id="vzApiHint">留空则短链不可用（其余功能不受影响）。</div>
+      <div class="vz-menuRow">
+        <button class="vz-mi" id="vzApiSave" type="button">保存后端</button>
+        <button class="vz-mi" id="vzApiTest" type="button">测试连通</button>
+      </div>
     </div>
   </div>
   <button class="vz-btn" id="vzCoverBtn" title="分析整曲并生成专辑封面（预览 / 下载 PNG）">
@@ -122,6 +136,7 @@
               <input type="checkbox" id="vzCoverHd"> 高清导出 2×
             </label>
             <button type="button" class="vz-mi" id="vzDl2x" title="临时按 2× 分辨率导出一次（不改动上面的勾选状态）">以 2× 分辨率下载</button>
+<button type="button" class="vz-mi" id="vzShortLink" title="把当前工程上传到短链后端，二维码里只放 8 位 ID（一张普通二维码即可扫出整份谱子）">生成短链二维码</button>
           </div>
         </div>
         <button type="button" class="vz-cover-x" id="vzCoverClose" title="关闭（Esc）">×</button>
@@ -130,7 +145,6 @@
         <button type="button" data-kind="cover" class="on">专辑封面</button>
         <button type="button" data-kind="fingerprint">音乐指纹</button>
         <button type="button" data-kind="sharecard">分享卡片</button>
-        <button type="button" data-kind="sheetqr">谱子二维码</button>
       </div>
       <div class="vz-cover-body" id="vzCoverBody">
         <canvas class="vz-cover-canvas" id="vzCoverCanvas" width="800" height="800"></canvas>

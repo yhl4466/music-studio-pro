@@ -13,7 +13,6 @@ import { $, downloadBlob } from '../core/util.js';
 import { generateCover, COVER_STYLES } from './cover.js';
 import { generateFingerprint } from './fingerprint.js';
 import { generateShareCard } from './shareCard.js';      // FEAT-V6/T1：分享卡片（1200×630）
-import { generateSheetQR } from './sheetQR.js';           // 谱子二维码图纸（多张真二维码）
 
 /* 顶部按钮图标：先试 emoji，运行时探测本机能不能画出来（画不出来就退回几何符号 ◆，绝不出现方块）。
    想手工固定：把 ICON 直接改成 '◆' 或任意字符即可（AUTO_ICON=false 关闭探测）。 */
@@ -22,7 +21,7 @@ const ICON_FALLBACK='◆';
 const AUTO_ICON=true;
 
 const STYLE_LABELS={ring:'同心声纹',bricks:'能量砖阵',ribbon:'波形缎带'};
-const KIND_LABELS={cover:'专辑封面',fingerprint:'音乐指纹',sharecard:'分享卡片',sheetqr:'谱子二维码'};
+const KIND_LABELS={cover:'专辑封面',fingerprint:'音乐指纹',sharecard:'分享卡片'};
 const SEED_MAX=1e9;
 
 let el=null;                       // DOM 句柄集合（bind 一次）
@@ -94,17 +93,6 @@ function shareUrlOf(){
   return '';
 }
 function isOpen(){ return !!(el&&el.modal&&!el.modal.classList.contains('off')) }
-/** 图纸副标题用的摘要行（BPM / 调式 / 轨数等，能拿到多少写多少） */
-function sheetMeta(){
-  const f=features||{};
-  const bits=[];
-  if(f.bpm)bits.push('BPM '+Math.round(f.bpm));
-  else if(bpmOf())bits.push('BPM '+bpmOf());
-  if(f.key&&f.key.name)bits.push(f.key.name);
-  if(f.duration)bits.push(f.duration.toFixed(1)+' 秒');
-  if(f.noteCount)bits.push(f.noteCount+' 音符');
-  return bits.join(' · ');
-}
 function setStyleButtons(){
   if(!el)return;
   for(const b of el.tabs)if(b&&b.classList)b.classList.toggle('on',b.dataset&&b.dataset.style===style);
@@ -123,24 +111,19 @@ function applyKindLayout(){
   if(el.body){
     el.body.classList.toggle('fp',kind==='fingerprint');
     el.body.classList.toggle('sc',kind==='sharecard');
-    el.body.classList.toggle('sq',kind==='sheetqr');
   }
   if(el.card){
     el.card.classList.toggle('fp',kind==='fingerprint');
     el.card.classList.toggle('sc',kind==='sharecard');
-    el.card.classList.toggle('sq',kind==='sheetqr');
   }
   if(el.download){
     el.download.title=(kind==='sharecard')?'导出 1200×630 PNG（高清勾选后 2400×1260）'
                      :(kind==='fingerprint')?'导出 1920×400 PNG（高清勾选后 3840×800）'
-                     :(kind==='sheetqr')?'导出谱子二维码图纸 PNG（高清勾选后 2×）'
                      :'导出 800×800 PNG（高清勾选后 1600×1600）';
   }
   if(el.hd&&el.hd.parentElement)el.hd.parentElement.title=(kind==='sharecard')
     ?'以 2× 分辨率离屏重绘后导出（分享卡片 2400×1260）'
-    :(kind==='sheetqr')
-      ?'以 2× 分辨率离屏重绘后导出（图纸更清晰，利于打印/缩放扫码）'
-      :'以 2× 分辨率离屏重绘后导出（封面 1600×1600 / 指纹 3840×800）';
+    :'以 2× 分辨率离屏重绘后导出（封面 1600×1600 / 指纹 3840×800）';
   void 0;
 }
 function setBtnBusy(on){
@@ -190,23 +173,13 @@ function render(){
         shareUrl:shareUrlOf(),
         shareInfo:si                                   // 卡片据此如实说明二维码里到底有没有工程数据
       });
-    }else if(kind==='sheetqr'){
-      /* 谱子二维码：要的是**工程数据本身**（不是应用地址），所以取带 hash 的完整分享链接，
-         并把它切成多张真二维码。数据由入口的 getShareInfo 提供（那里已经算过压缩编码）。 */
-      let si=null;
-      try{ if(typeof hooks.getShareInfo==='function')si=hooks.getShareInfo() }catch(e){}
-      const full=(si&&si.fullUrl)?si.fullUrl:'';
-      const hash=full.indexOf('#')>=0?full.slice(full.indexOf('#')):'';
-      info=generateSheetQR(el.canvas,{hash,title,bpm:bpmOf(),meta:sheetMeta()});
-      if(!info||info.ok===false){ setNote('谱子二维码：还没有可用的工程数据（载入工程后再试）'); rendering=false; return null }
     }else if(kind==='fingerprint'){
       info=generateFingerprint(el.canvas,features,seed,{title});
     }else{
       info=generateCover(el.canvas,features,style,seed,{title,showTitle:true});
     }
     const ms=t0?Math.round(nowMs()-t0):0;
-    const what=(kind==='sharecard')?'分享卡片':(kind==='sheetqr')?('谱子二维码 '+info.codes+' 张')
-              :((kind==='fingerprint')?'音乐指纹':(STYLE_LABELS[style]||style));
+    const what=(kind==='sharecard')?'分享卡片':((kind==='fingerprint')?'音乐指纹':(STYLE_LABELS[style]||style));
     /* 明确写出"这只是第 2 步画布绘制"：否则 "2 ms" 与用户实际等待的几十秒形成强烈矛盾，
        看起来像时间显示错误（实际是两个完全不同的步骤，见 ensureFeatures 的说明）。 */
     setNote('第 2/2 步：绘制'+what+' · 种子 '+seed+(ms?(' · 画布耗时 '+ms+' ms'):'')+
@@ -330,8 +303,7 @@ function download(force2x){
   if(!el||!el.canvas){ setNote('还没有可下载的画布'); return }
   if(!features){ setNote('还没有分析结果，无法导出'); return }
   const name=safeName(titleOf())+(kind==='sharecard'?'-sharecard.png'
-              :(kind==='fingerprint'?'-fingerprint.png'
-              :(kind==='sheetqr'?'-sheetqr.png':('-cover-'+style+'.png'))));
+              :(kind==='fingerprint'?'-fingerprint.png':('-cover-'+style+'.png')));
   const src=exportCanvas(force2x);
   try{
     src.toBlob(blob=>{
@@ -389,6 +361,7 @@ export function bindCoverUI(h){
     dlMore:$('#vzDlMore'),
     dlMenu:$('#vzDlMenu'),
     dl2x:$('#vzDl2x'),
+    shortLink:$('#vzShortLink'),
     close:$('#vzCoverClose'),
     kindTabs:(modal.querySelectorAll?Array.from(modal.querySelectorAll('.vz-cover-kinds button')):[]),
     tabs:(modal.querySelectorAll?Array.from(modal.querySelectorAll('.vz-cover-tabs button')):[])
@@ -418,6 +391,20 @@ export function bindCoverUI(h){
   /* 下载选项菜单（批 B 任务 8）：▾ 开关；「以 2× 下载」= 临时 2× 导出一次，不改变上面的勾选状态 */
   if(el.dlMore)el.dlMore.addEventListener('click',e=>{ e.stopPropagation(); setDlMenu(!dlOpen) });
   if(el.dl2x)el.dl2x.addEventListener('click',()=>{ setDlMenu(false); download(true) });
+  /* 生成短链二维码：把当前工程重新上传到后端换一个**新的** 8 位 ID，并即时重绘卡片。
+     为什么不复用已上传的 ID：用户点这个按钮的意图通常是"我刚改了谱子，要一张新的"，
+     复用旧 ID 会让人以为没生效。代价是后端留一份旧记录（180 天后自动过期）。 */
+  if(el.shortLink)el.shortLink.addEventListener('click',()=>{
+    setDlMenu(false);
+    if(typeof hooks.makeShortLink!=='function'){ setNote('短链功能未接线'); return }
+    setNote('正在生成短链…');
+    Promise.resolve(hooks.makeShortLink())
+      .then(r=>{
+        if(r&&r.ok){ render(); setNote('短链已生成：'+(r.id||'')+'（二维码已更新，一张即可扫出整份谱子）') }
+        else setNote('短链生成失败：'+((r&&r.message)||'未知原因'));
+      })
+      .catch(e=>setNote('短链生成失败：'+((e&&e.message)||e)));
+  });
   if(document.addEventListener)document.addEventListener('pointerdown',e=>{
     if(!dlOpen)return;
     if((el.dlMenu&&el.dlMenu.contains(e.target))||(el.dlMore&&el.dlMore.contains(e.target)))return;
