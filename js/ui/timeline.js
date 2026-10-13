@@ -364,8 +364,11 @@ function windowFrom(pool,viewW){
   return from;
 }
 /* 左侧名称列宽（--labW，theme.css 里是 96px）：先看缓存，再回落到全局尺寸缓存。
-   两处都不读布局（除非是全局缓存第一次初始化）—— getComputedStyle 会强制样式重算。 */
-function labWidthPx(){
+   两处都不读布局（除非是全局缓存第一次初始化）—— getComputedStyle 会强制样式重算。
+   ⚠ 导出给 seek.js 复用：那边的 followScroll / scrubSeek 原来每步都自己
+   parseFloat(getComputedStyle(...).getPropertyValue('--labW'))，实测播放 8 秒里
+   getPropertyValue 自身占 680ms（8.4%），是"主页面播放卡顿"的主因。 */
+export function labWidthPx(){
   const c=proj._uiCache;
   if(c&&c.labW)return c.labW;
   const w=cachedLabW();

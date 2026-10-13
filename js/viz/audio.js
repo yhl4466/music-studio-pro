@@ -506,11 +506,16 @@ export function makeEta(seconds,opts={}){
       if(!overdue&&elapsed>estTotal*1.5)overdue=true;
       const used='（已用 '+Math.max(1,Math.round(elapsed))+' 秒）';
       const showNums=canCountdown||canCountdownOverride;
+      /* 文案取向（用户反馈后调整）：**不再说"即将完成"**。
+         离线渲染没有进度 API，"末期"只是我们的估算走到 90% 而已 —— 而这个估算本身
+         可能是错的（实测同一台机器单位成本能差 25 倍）。报"即将完成"结果又等半分钟，
+         比直接说"要等一会儿"更让人烦躁。所以一律给"需要较长时间 + 已用秒数"，
+         既不会骗人，也让人看得出确实在推进。 */
       let text;
-      if(elapsed<2)text='生成音频中… 启动中';
-      else if(overdue)text='生成音频中… 仍在渲染，请稍候 '+used;
-      else if(!showNums)text='生成音频中… 正在合成 '+used;
-      else if(late)text='生成音频中… 即将完成 '+used;
+      if(elapsed<2)text='生成音频中… 正在准备';
+      else if(overdue)text='生成音频中… 本次渲染耗时较长，请耐心等待 '+used;
+      else if(!showNums)text='生成音频中… 渲染需要较长时间，请耐心等待 '+used;
+      else if(late)text='生成音频中… 仍在渲染，请耐心等待 '+used;
       else text='生成音频中… 还需约 '+Math.ceil(left)+' 秒 '+used;
       return {frac,left:showNums?left:null,text,total:estTotal,initialTotal,ratio,uPerSec:ups,late,overdue,countdown:showNums};
     }

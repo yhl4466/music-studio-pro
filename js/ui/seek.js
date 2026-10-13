@@ -4,7 +4,7 @@ import { proj, actx, A, stepDurNow, fmtPos, stepWidth, effStepWidth, uiZoom } fr
 import { $, el, clamp, UI, hooks } from '../core/util.js';
 import { Play, stopPlay, tickSched, playheadHooks } from '../audio/engine.js';
 import { ensureAudio, setGate, setAudioBusy } from '../audio/master.js';
-import { VIRTUAL } from './timeline.js';
+import { VIRTUAL, labWidthPx } from './timeline.js';
 import { wakeViz } from './viz.js';
 
 export let followOn=true; // 播放时自动跟随滚动
@@ -28,7 +28,10 @@ export function followScroll(step){
   const tl=document.getElementById('timeline');
   if(!tl)return;
   const cw=effStepWidth()||8;
-  const labW=parseFloat(getComputedStyle(tl).getPropertyValue('--labW'))||96;
+  /* --labW 必须走 timeline.js 的布局缓存：这里原来每步都 parseFloat(getComputedStyle(...).getPropertyValue('--labW'))，
+     而 getComputedStyle 会**强制样式重算**（实测播放 8 秒里 getPropertyValue 自身占 680ms / 8.4%，
+     是"主页面播放卡顿"的主因）。--labW 是 theme.css 里的常量，不随播放变化，完全没必要每步读。 */
+  const labW=labWidthPx()||96;
   const x=labW+step*cw;
   const left=tl.scrollLeft||0, w=tl.clientWidth||0;
   if(x<left+labW+40||x>left+w-80){
@@ -152,7 +155,7 @@ export function scrubSeek(clientX){
   if(!ruler||!proj.steps)return;
   const r=ruler.getBoundingClientRect();
   const cw=effStepWidth();
-  const labW=parseFloat(getComputedStyle(ruler).getPropertyValue('--labW'))||96;
+  const labW=labWidthPx()||96;   // 同上：走布局缓存，不在这里 getComputedStyle
   const x=clientX-r.left-(labW+5); // 标尺最左侧的空白格(--labW+5px)之后的第一个步进列
   let s=Math.floor(x/cw);
   if(x<0)s=0;
