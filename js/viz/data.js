@@ -9,6 +9,7 @@ import { proj, setProj, newTrack, allocPat, ensurePatSizes, pruneTrackPrec, SPB,
 import { PREC_U_PER_STEP, ROLES, ENGINE_DEF, MEL_ROWS, KIT, trackRows, degSemi } from '../core/theory.js';
 import { b64ToBytes, inflateB64, lzDecode } from '../io/share.js';
 import { fetchShortLink, shortIdFromHash } from '../io/shortlink.js';   // #p= 短链（扫码导入谱子必需）
+import { LS_KEY } from '../core/storage.js';                            // 返回主应用时把工程移交给它
 
 /* 归一化结果就是 core/state.js 的全局 proj；这里按同一实例再导出一次，
    让页面/测试统一从本模块取工程，避免出现“两份 proj”的隐患。 */
@@ -39,7 +40,7 @@ const oneOf=(v,list,f)=>(list.indexOf(v)>=0?v:f);
 export async function readHashJson(hash){
   const h=hash||'';
   try{
-    /* 短链：向后端换回 '#z=…' 之类的载荷，然后重入本函数解码 */
+    /* 短链：向后端换回 '#z=…' 之类的载荷，再重入本函数解码 */
     const sid=shortIdFromHash(h);
     if(sid){
       const r=await fetchShortLink(sid);
@@ -50,16 +51,46 @@ export async function readHashJson(hash){
       return await readHashJson(r.data);
     }
     if(h.startsWith('#s=')){
-      return decodeURIComponent(escape(atob(h.slice(3))));
+      const s1=decodeURIComponent(escape(atob(h.slice(3))));
+      lastPayloadJson=s1;                       // 记下来，供"返回主应用"时移交（见 handoffPayload）
+      return s1;
     }
     if(h.startsWith('#z=')){
-      return await inflateB64(h.slice(3));
+      const s2=await inflateB64(h.slice(3));
+      lastPayloadJson=s2;
+      return s2;
     }
     if(h.startsWith('#l=')){
-      return lzDecode(b64ToBytes(h.slice(3)));
+      const s3=lzDecode(b64ToBytes(h.slice(3)));
+      lastPayloadJson=s3;
+      return s3;
     }
   }catch(e){ return null }
   return null;
+}
+/* =========================================================================
+   返回主应用时的工程移交
+   -------------------------------------------------------------------------
+   问题（用户反馈）：扫码/打开短链进入可视化页 → 点「返回主应用」→ 主界面只有示例工程。
+   原因：「返回主应用」只是跳到 ./index.html，不带任何数据；而可视化页的工程来自 URL hash，
+   主应用读的是自己的存档键（musicProducerPro.v1），两者不通 —— 所以回到主界面就丢了谱面。
+
+   修法：把**已经取回并解码好的那份载荷 JSON**（与主应用 serializeProject() 输出的格式相同，
+   主应用的 applyProjectData 能直接吃）在跳转前写进主应用的存档键。
+   这样主应用启动时原有的 loadAutosave() 路径就会自然把它读进来，
+   **不需要给主应用加任何特殊分支**，也不会误覆盖（写的就是当前这份工程）。
+   ========================================================================= */
+let lastPayloadJson=null;
+/** 把当前从分享链接载入的工程移交给主应用（写主应用存档键）。返回是否成功 */
+export function handoffPayload(){
+  if(!lastPayloadJson)return false;
+  try{
+    /* 必须先自检能不能解析：宁可不移交，也不能把坏数据写进主应用的存档 */
+    const o=JSON.parse(lastPayloadJson);
+    if(!o||!Array.isArray(o.tracks)||!o.steps)return false;
+    localStorage.setItem(LS_KEY,lastPayloadJson);
+    return true;
+  }catch(e){ return false }
 }
 /* 供“复制可视化直链”使用：可解码出 JSON 的 hash 一律原样保留，其余清空 */
 export function hashForViz(hash){

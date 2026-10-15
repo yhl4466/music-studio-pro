@@ -611,6 +611,11 @@ function bindTransportUI(){
   const back=$('#vzBack');
   if(back)back.addEventListener('click',e=>{
     if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+    /* 回主应用前先把当前工程移交给它（写主应用存档键）。
+       否则主界面读不到这份谱面 → 只有示例工程（用户反馈的问题）。
+       放在 startViewTransition **之前**执行：移交是同步的，不能塞进 transition 回调，
+       否则新标签页/修饰键等边界情况下容易漏掉。 */
+    try{ dataMod.handoffPayload() }catch(err){}
     const href=back.getAttribute('href')||'./index.html';
     try{
       if(typeof document.startViewTransition==='function'){
@@ -1133,7 +1138,7 @@ else { try{ startViz() }catch(e){ console.error('[viz] 启动失败',e); throw e
    刷新页面仍可能执行旧模块 —— 本次会话因此把"已修好的功能"误判成"还是坏的"三次。
    发新版时**请把 visualizer.html 的 build vN 与本常量一起 +1**，之后对照页面右下角
    就能立刻知道浏览器跑的是不是最新代码。 */
-export const VZ_BUILD='v3';
+export const VZ_BUILD='v4';
 window.__vz={build:VZ_BUILD,view,list,current,select,register,data:dataMod,transport,registry:{register,list,select,current},
   dom:{stage,cv,overlay,hint,playBtn,stopBtn,cancelBtn,seek,pick,lenSel,posSub,posMain,timeEl,paramsBox},
   get renderParams(){return current()?current().params:null},
