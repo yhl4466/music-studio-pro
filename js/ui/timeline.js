@@ -723,16 +723,21 @@ export function buildTrackGroup(t,ti,list){
     headLeft.appendChild(colArrow);
     const ico=el('div','tgIcon',icon(R.icon));ico.style.background=t.color+'33';ico.style.color=t.color;
     headLeft.appendChild(ico);
+    /* 中间段（名称/角色/编号）包一层 .tgMid：它是**可压缩区**（flex:1 + min-width:0 + overflow:hidden）。
+       原来这三项是 .thead 的直接子元素、都是 flex:none 固定宽，合计约 300px 硬撑，
+       窄视口下会把右侧的 M/S 挤出可视区（用户反馈"静音与独奏按钮没有吸附在右侧"）。
+       包成可压缩段后，挤压只发生在中间，M/S 始终贴右。 */
+    const mid=el('div','tgMid');
     const nm=el('input','tname');nm.value=t.name;nm.title=t.name;
     nm.addEventListener('focus',e=>e.stopPropagation());
     nm.addEventListener('click',e=>e.stopPropagation()); // 编辑名称时别触发“选中切页”
     nm.addEventListener('change',()=>{t.name=nm.value||t.name;nm.value=t.name;nm.title=t.name;markDirtyUI()});
-    headLeft.appendChild(nm);
+    mid.appendChild(nm);
     const tag=el('span','roleTag',t.kind==='drum'?'鼓组':'· '+(R.name));
     tag.style.color=t.color;tag.style.borderColor=t.color+'55';
-    headLeft.appendChild(tag);
-    headLeft.appendChild(el('span','tag-mini','#'+String(ti+1).padStart(2,'0')));
-    head.appendChild(el('div','',{style:'flex:1'}));
+    mid.appendChild(tag);
+    mid.appendChild(el('span','tag-mini','#'+String(ti+1).padStart(2,'0')));
+    head.appendChild(mid);
     if(t.kind==='mel'){
       const sh=el('div','tgShift');
       const octv=el('span','octv',(t.shift>=0?'+':'')+t.shift+'st');

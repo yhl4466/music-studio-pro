@@ -60,6 +60,16 @@
 .theadLeft{display:flex;align-items:center;gap:8px;position:sticky;left:0;z-index:2;
   background-color:var(--card);box-shadow:var(--scroll-sh)}
 .thead.sel .theadLeft{background-color:var(--sel-bg)}
+/* 表头中间段（名称/角色/编号）：**可压缩区**。
+   为什么需要它：原来名称、角色标签、编号是 .thead 的直接子元素，都是 flex:none 的固定宽度，
+   合计约 300px 硬撑；而 .tgFill 只靠 margin-left:auto 靠右，**只有存在剩余空间时才生效**。
+   于是窗口一窄 / 侧栏一展开，这一排就撑破 162px 的列宽：M/S 被挤到移调控件后面、
+   甚至被裁掉（用户反馈"静音与独奏按钮没有吸附在右侧"）。
+   改成：中间段 flex:1 + min-width:0 + overflow:hidden —— 挤压只发生在中间，
+   右侧 .tgFill（M/S）始终贴边、永不被裁。 */
+.tgMid{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;overflow:hidden}
+.tgMid .tname{flex:0 1 120px;min-width:0}
+.tgMid .roleTag{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tgIcon{width:22px;height:22px;border-radius:var(--r-xs);display:flex;align-items:center;justify-content:center;font-size:11px;flex:none}
 .roleTag{font-size:10px;padding:2px 7px;border-radius:20px;flex:none;letter-spacing:.5px;border:1px solid}
 /* 轨道名输入：与 .numInp/.seedRow input 同一套（32 高 / --ctl-bg2 底 / --hair-2 边 / focus 内环） */
@@ -78,7 +88,17 @@
 .tgShift{display:flex;gap:2px;align-items:center;flex:none}
 .tgShift .sc{height:21px;min-width:21px;padding:0 3px;font-size:10px}
 .tgShift .octv{font:600 10px var(--mono);color:var(--acc);min-width:24px;text-align:center}
-.tgFill{margin-left:auto;display:flex;align-items:center;gap:5px;flex:none}
+.tgFill{margin-left:auto;display:flex;align-items:center;gap:5px;flex:none;
+  position:sticky;right:0}   /* 贴右：极窄时也优先保住 M/S，不被中间段挤走 */
+/* 极窄视口的降级：按优先级逐个让位，**始终保住 M/S**。
+   顺序：角色标签 → 名称输入收窄 → 编号 → 移调控件。 */
+@media (max-width:900px){ .thead .roleTag{display:none} }
+@media (max-width:760px){ .thead .tname{width:74px} .thead .tag-mini{display:none} }
+@media (max-width:640px){
+  .thead .tgShift{display:none}
+  .thead .tname{width:58px}
+  .thead{gap:5px;padding:0 6px 0 8px}
+}
 .collapse{transform:rotate(0);transition:transform var(--dur-base) var(--ease-in-out)}
 .tgroup.closed .collapse{transform:rotate(-90deg)}
 .tgBody{padding:2px 0 6px}
