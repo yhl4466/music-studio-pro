@@ -9,7 +9,80 @@ import { wakeViz } from './viz.js';
 
 export let followOn=true; // 播放时自动跟随滚动
 export function setFollowOn(v){followOn=v}
+/* =========================================================================
+   播放跟随滚动（DAW 式）—— 用户要求：
+   "播放时指针移动至谱面 4/5 处时平滑地显示后面的谱面，指针相对界面静止"
+   -------------------------------------------------------------------------
+   旧实现是"跳页"：一旦指针越过 left+w-80 就把 scrollLeft 一把设成 x-w*0.35，
+   指针会从右边缘瞬间弹回 35% 处 —— 就是"一跳一跳"的观感。
+   新实现分两个阶段，和主流音乐制作软件一致：
+     ① 指针未到阈值（视口 4/5）之前：**完全不动 scrollLeft**，指针自由右移；
+     ② 越过阈值后：每帧把 scrollLeft 推 `step*cw - xAt`，于是**指针钉在 4/5 处不动**，
+        谱面向左平滑滑过（scrollLeft 依赖步号，所以滚动本身是连续、不抖的）。
+   -------------------------------------------------------------------------
+   实现要点：
+   · 必须在 **visLoop 的 rAF 里每帧**重算，不能只在"步号变化时"调（每步 150ms 才动一次 =
+     仍然是一跳一跳）。所以这里自动滚动期间自己续期 rAF，与基于步号的那次调用解耦。
+   · 不要在 x<=xAt 时把 scrollLeft 往回写，否则第一步会往回跳。
+   · followPinRaf 只在需要时运行；停止播放 / 关闭跟随 / 换曲时由 stopFollowPin 收掉。
+   ========================================================================= */
+export const FOLLOW_FRAC=4/5;   // 指针触发自动滚动的横向位置（视口比例）
 let lastFollowed=-1;
+let followPinRaf=0;
+let followPinOn=false;          // 是否已进入"钉住"阶段
+function stopFollowPin(){
+  followPinOn=false;
+  if(followPinRaf){try{cancelAnimationFrame(followPinRaf)}catch(e){}followPinRaf=0}
+}
+function stepXAt(){
+  const cw=effStepWidth()||8;
+  const labW=labWidthPx()||96;          // 走布局缓存，不在这里 getComputedStyle
+  return {cw,labW};
+}
+/* 每帧推进：把 scrollLeft 设成"让当前步停在 4/5 处"的值。
+   若音频时刻已越过当前队首，用插值步号（更平滑）；否则退回最近已消费的步号。 */
+function pinStep(){
+  const tl=document.getElementById('timeline');
+  if(!tl){stopFollowPin();return}
+  const {cw,labW}=stepXAt();
+  const w=tl.clientWidth||0;
+  if(!w||!cw){stopFollowPin();return}
+  /* 指针的"连续"位置 —— 从队列队首正向插值。
+     推导：Play.uiStep 是**最后一个已被消费**的步（visLoop 里 shift 出来的），
+     而 Play.q[0] 正是"下一步（uiStep+1）将要生效"的时刻。所以
+         progress = (now − q[0].time) / dur   ∈ (0, 1] 左右
+         s        = uiStep + progress
+     即 uiStep 与 uiStep+1 之间的连续插值。
+     ⚠ 两个踩过的坑，别再改回去：
+     ① 不能用 q[0].step 当基准再往回插 —— 那算的是"下一步已经走了多少"，
+        结果会偏后一整列（实测指针停在 0.854 而不是 0.80）。
+     ② 不能只取整列 Play.uiStep（不插值）—— 滚动会一档一档跳
+        （实测每帧中位增量 36px，正是"一跳一跳"的观感）。 */
+  let s=(Play.uiStep!=null&&Play.uiStep>=0)?Play.uiStep:0;
+  const dur=stepDurNow();
+  const head=Play.q.length?Play.q[0]:null;
+  if(head&&actx&&dur>0){
+    /* 上限放到 4 而不是 1.2：q[0] 是"刚到期、还没被 visLoop 消费"的步，
+       而 uiStep 是"最后一个已消费的步"，所以 uiStep 天生落后 currentTime 1~2 步。
+       实测 prog（含下面的 +1）落在 2.3~3.1；原来钳到 1.2 会把位置压平、破坏连续性。
+       下限 0：如果队列超前一帧（prog<0 不该发生）也不要往回拖。 */
+    const prog=clamp((actx.currentTime-head.time)/dur+1,0,4);
+    s+=prog;
+  }
+  const x=labW+s*cw;
+  const xAt=labW+w*FOLLOW_FRAC;
+  const max=Math.max(0,proj.steps*cw+labW-w);
+  /* 用"当前 scrollLeft 下指针相对 4/5 的偏差"来推，而不是直接 x-xAt：
+     这样后退（seek 到更早 / 循环回到开头）也能被纠回阈值处，不会让指针悄悄停在阈值左边。 */
+  const target=clamp(x-xAt,0,max);
+  if(Math.abs(target-(tl.scrollLeft||0))>=0.5)tl.scrollLeft=target;
+}
+function followPinLoop(){
+  followPinRaf=0;
+  if(!followOn||!(Play.playing&&actx)){followPinOn=false;return}
+  pinStep();
+  followPinRaf=requestAnimationFrame(followPinLoop);
+}
 export function followScroll(step){
   if(!followOn||step===lastFollowed)return;
   lastFollowed=step;
@@ -23,22 +96,24 @@ export function followScroll(step){
     if(cell){try{cell.scrollIntoView({block:'nearest',inline:'nearest',behavior:'auto'})}catch(e){}}
     return;
   }
-  // 虚拟渲染：格子只在窗口内存在 → 直接按步号算目标滚动位置，
-  // 滚动事件由 timeline.js 用 requestAnimationFrame 合并后同步窗口列。
   const tl=document.getElementById('timeline');
   if(!tl)return;
-  const cw=effStepWidth()||8;
-  /* --labW 必须走 timeline.js 的布局缓存：这里原来每步都 parseFloat(getComputedStyle(...).getPropertyValue('--labW'))，
-     而 getComputedStyle 会**强制样式重算**（实测播放 8 秒里 getPropertyValue 自身占 680ms / 8.4%，
-     是"主页面播放卡顿"的主因）。--labW 是 theme.css 里的常量，不随播放变化，完全没必要每步读。 */
-  const labW=labWidthPx()||96;
+  const {cw,labW}=stepXAt();
+  const w=tl.clientWidth||0;
+  if(!w||!cw)return;
   const x=labW+step*cw;
-  const left=tl.scrollLeft||0, w=tl.clientWidth||0;
-  if(x<left+labW+40||x>left+w-80){
-    const max=Math.max(0,proj.steps*cw+labW-w);
-    tl.scrollLeft=Math.max(0,Math.min(max,x-w*0.35));
-  }
+  const xAt=labW+w*FOLLOW_FRAC;
+  /* 未到阈值：只有**已经从左侧接近**时才不干预（否则会往回跳）。
+     已经处于钉住态时即使 x 略小于阈值也继续推进，pinStep 会把位置纠回阈值。 */
+  if(x<xAt&&!followPinOn)return;
+  followPinOn=true;
+  /* 进入钉住态后交给 rAF 每帧推进（见 pinStep 注释：只在步号变化时推 = 仍会一跳一跳）。
+     这里先立即推一次，避免"越过阈值的那一帧"还没动。 */
+  pinStep();
+  if(!followPinRaf)followPinRaf=requestAnimationFrame(followPinLoop);
 }
+/* 停止/换曲时收掉自动滚动的 rAF（engine 经 playheadHooks 调用，见文件末尾注册） */
+export function stopFollowScroll(){ stopFollowPin(); lastFollowed=-1 }
 export function setPlayUI(on){
   $('#playIco').style.display=on?'none':'block';
   $('#stopIco').style.display=on?'block':'none';
@@ -101,14 +176,22 @@ export function wakeVis() {
 }
 export function visLoop() {
   // 停止态 / 后台标签页：不再续期，循环自然结束
-  if (!(Play.playing && actx) || (typeof document !== 'undefined' && document.hidden)) { _visOn = false; return; }
+  if (!(Play.playing && actx) || (typeof document !== 'undefined' && document.hidden)) { stopFollowPin(); _visOn = false; return; }
   requestAnimationFrame(visLoop);
   wakeViz();                        // 顶栏频谱只有播放时才有意义，跟着播放头一起跑
+  /* 队列排空：**合并成一帧一次 DOM 更新**。
+     原实现在 while 里对每个到期步都调一遍 glowStepCells+updatePos+followScroll ——
+     正常每帧只有 0~1 步，看不出问题；但主线程一旦被卡住（GC / 布局重算 / 用户操作），
+     队列会积压好几步，于是一帧内连着做 N 次 DOM 写 + N 次滚动重定位 =
+     "越卡越卡"的正反馈（这也是用户反馈"操作太快也会卡"的一部分成因）。
+     现在只取**最后一个到期步**做一次 UI 更新：中间那些步的视觉效果本来也会被同一帧覆盖掉，
+     合并后画面完全等价，但 DOM 写入次数从 N 次降到 1 次。 */
   const now = actx.currentTime;
-  while (Play.q.length && Play.q[0].time <= now + 0.004) {
-    const e = Play.q.shift();
-    Play.uiStep = e.step;
-    glowStepCells(e.step); updatePos(e.step); followScroll(e.step);
+  let last = null;
+  while (Play.q.length && Play.q[0].time <= now + 0.004) last = Play.q.shift();
+  if (last) {
+    Play.uiStep = last.step;
+    glowStepCells(last.step); updatePos(last.step); followScroll(last.step);
   }
 }
 /* ---------- 播放进度条（可拖拽 UI + 标尺同步） ---------- */
@@ -212,10 +295,13 @@ export function bindScrubber(){
 export function resetGlow(){ lastGlowStep=-1; }
 /* 当前已点亮的播放列（虚拟窗口重排后据此恢复 playCol 高亮；未点亮返回 -1） */
 export function glowCol(){ return lastGlowStep; }
-/* 点火：**所有**进入播放的路径最后都会调 setPlayUI(true)
+/* 点火 / 收火：**所有**进入播放的路径最后都会调 setPlayUI(true)
    （togglePlay 走它、startFromStep 走它），所以把 wakeVis 挂在这里最稳 ——
    挂在 updatePos 上会漏掉 togglePlay（它只调 setPlayUI，不调 updatePos），
-   挂在 startFromStep 上则会漏掉主播放按钮。 */
-function setPlayUIAndWake(on){ if(on)wakeVis(); setPlayUI(on); }
+   挂在 startFromStep 上则会漏掉主播放按钮。
+   反过来，**所有**停止路径（pausePlay / stopPlay / finishSong）都会调 setPlayUI(false)，
+   所以自动滚动的 rAF 也在这里收掉 —— 只挂在 setPlayUI 上不会打断滚动中的续期
+   （glowStepCells 每步都调 clearStepGlow，不能挂那儿，否则每步重置跟随状态）。 */
+function setPlayUIAndWake(on){ if(on)wakeVis(); else stopFollowScroll(); setPlayUI(on); }
 hooks.seek={updateSeekUI,resetGlow,glowCol};
 Object.assign(playheadHooks,{setPlayUI:setPlayUIAndWake,clearStepGlow,updatePos,glowStepCells,followScroll,visLoop,wakeVis});
