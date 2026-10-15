@@ -756,6 +756,14 @@ export function buildTrackGroup(t,ti,list){
     tgFill.appendChild(M);tgFill.appendChild(So);
     head.appendChild(tgFill);
     head.addEventListener('click',()=>{
+      /* 点"已经选中"的那条轨：选中态没变，没必要重建。
+         实测（headless/Profiler）：每次点音轨头同步耗时约 560ms、其中 (program) 316ms，
+         主要是 structural(true) 与侧栏整体重建；连点同一条轨会一次次白跑。
+         这里提前返回 —— 这是用户高频动作（点轨道看参数），收益直接。 */
+      if(proj.sel===ti){
+        if(uiTab!=='track')hooks.inspector?.selectTab?.('track');
+        return;
+      }
       proj.sel=ti;
       structural(true);
       if(uiTab!=='track')hooks.inspector?.selectTab?.('track'); // 点哪条轨就看到它的混音/编辑面板
