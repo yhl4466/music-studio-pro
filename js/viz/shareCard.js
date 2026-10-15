@@ -315,7 +315,10 @@ function paintBottom(ctx,pal,info,shareInfo){
   ctx.font='700 13px '+FONT;
   ctx.fillStyle=alpha(pal.accent,0.80);
   const hasShort=!!(si&&si.short);
-  ctx.fillText(hasShort?'扫码即可还原谱子':(si&&si.fitsQR?'扫码还原工程':'扫码打开可视化页'),urlX,y0+32);
+  /* 文案口径（用户要求：分享链接指向**主界面** index.html，不再是可视化页）：
+     "还原谱子"仍然准确 —— 主界面打开 #p= 会把工程载入编辑器，可直接查看与继续编辑；
+     二维码指向主界面，所以"打开"的说辞也从"可视化页"改成"工作室"。 */
+  ctx.fillText(hasShort?'扫码即可还原谱子':(si&&si.fitsQR?'扫码还原工程':'扫码打开工作室'),urlX,y0+32);
   ctx.font='13px '+MONO;
   ctx.fillStyle=pal.primary;
   const wrap=wrapText(ctx,info.url,urlW,3);
@@ -330,7 +333,7 @@ function paintBottom(ctx,pal,info,shareInfo){
   }else if(si&&si.dataBytes>0){
     ctx.fillText('谱子 '+si.kb.toFixed(1)+' KB，超出二维码容量；配置短链后端后即可扫码还原',urlX,ny);ny+=17;
     ctx.fillStyle=alpha(pal.accent,0.5);
-    ctx.fillText('（当前二维码只能打开可视化页，传谱子请用主应用「分享链接」）',urlX,ny);
+    ctx.fillText('（当前二维码只能打开工作室，传谱子请用主应用「分享链接」）',urlX,ny);
   }else if(info.hashKB>0){
     ctx.fillText('含分享数据 '+info.hashKB.toFixed(1)+' KB',urlX,ny);
   }

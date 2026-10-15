@@ -1138,7 +1138,7 @@ else { try{ startViz() }catch(e){ console.error('[viz] 启动失败',e); throw e
    刷新页面仍可能执行旧模块 —— 本次会话因此把"已修好的功能"误判成"还是坏的"三次。
    发新版时**请把 visualizer.html 的 build vN 与本常量一起 +1**，之后对照页面右下角
    就能立刻知道浏览器跑的是不是最新代码。 */
-export const VZ_BUILD='v4';
+export const VZ_BUILD='v5';
 window.__vz={build:VZ_BUILD,view,list,current,select,register,data:dataMod,transport,registry:{register,list,select,current},
   dom:{stage,cv,overlay,hint,playBtn,stopBtn,cancelBtn,seek,pick,lenSel,posSub,posMain,timeEl,paramsBox},
   get renderParams(){return current()?current().params:null},

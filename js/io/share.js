@@ -3,6 +3,7 @@ import { serializeProject, applyProjectData } from './project.js';
 import { proj } from '../core/state.js';
 import { toast } from '../core/util.js';
 import { resolveSiteBase, buildShareUrl } from './siteUrl.js';
+import { hasApi, createShortLink } from './shortlink.js';   // 分享短链后端（server/）：主应用也走它，否则只有长链接
 import { fetchShortLink, shortIdFromHash } from './shortlink.js';
 
 /* =========================================================================
@@ -95,12 +96,33 @@ export function lzDecode(bytes){
   }
   return fromUtf8(new Uint8Array(out));
 }
+/**
+ * 复制「分享链接」到剪贴板。
+ * -------------------------------------------------------------------------
+ * ⚠ 这里原来**只**复制长链接（实测 24 小节工程就有 33004 字符）——
+ *   短链后端此前只接在可视化页的分享卡片上，主应用这个按钮从没走过它。
+ *   后果：用户从这里拿到的链接是一大串 base64，二维码根本装不下、聊天软件里也会被截断。
+ *   现在改为优先产短链：装了后端就得到 `…/index.html#p=<8位ID>`（约 60 字节，可印二维码）；
+ *   未配后端或请求失败时**如实回退**到长链接，并在提示里说明原因，不假装成功。
+ */
 export async function shareLink(){
   try{
     const h=await buildShareHash();
-    const url=buildShareUrl(h.hash);
     const kb=(h.hash.length/1024).toFixed(1);
-    const done=()=>toast('分享链接已复制到剪贴板（约 '+kb+' KB）→ 粘贴到浏览器打开即还原工程，或发给别人。','ok','check');
+    let url=buildShareUrl(h.hash);
+    let note='约 '+kb+' KB';
+    let short=null;
+    if(hasApi()){
+      /* 失败不抛：短链只是优化，拿不到就用长链接，功能不能因此不可用 */
+      try{ short=await createShortLink(h.hash) }catch(e){ short={ok:false,message:(e&&e.message)||'请求异常'} }
+    }
+    if(short&&short.ok){
+      url=buildShareUrl(short.url);
+      note='短链 '+short.id+'（'+url.length+' 字节）';
+    }else{
+      note='长链接约 '+kb+' KB'+(short&&short.message?('（短链不可用：'+short.message+'）'):(hasApi()?'':'（未配置短链后端）'));
+    }
+    const done=()=>toast('分享链接已复制到剪贴板：'+note+' → 粘贴到浏览器打开即还原工程，或发给别人。','ok','check');
     copyToClip(url,done);
   }catch(e){toast('分享失败：'+e.message,'err')}
 }

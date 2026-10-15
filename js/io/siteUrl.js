@@ -81,7 +81,8 @@ function ensureDir(u){
   const s=String(u||'');
   return s.endsWith('/')?s:(s+'/');
 }
-/** 可视化页的对外地址（分享卡片印的不是"当前页"，而是可视化页 —— 打开即看） */
+/** 可视化页的对外地址 —— ⚠ 当前**没有任何调用者**（保留仅为可能的"直接分享可视化页"需求）。
+    分享链接一律走 buildShareUrl()，它指向 SHARE_PAGE（主界面 index.html）。 */
 export function publicVisualizerUrl(){
   const b=resolveSiteBase();
   return b.url+'visualizer.html';
@@ -89,12 +90,21 @@ export function publicVisualizerUrl(){
 /**
  * 生成分享链接（基址 = 对外可访问地址，**不是** location.href）。
  * 这是关键修复：原来 shareLink 用 location.href 拼，在 localhost 上分享出去的链接别人打不开。
+ *
+ * 指向哪个页面（用户要求）：**index.html（主界面）**，而不是之前的 visualizer.html。
+ * 理由：拿到链接/扫码的人先看到完整编辑器，可以改谱子、继续创作；
+ *       可视化只是主界面菜单里的一个功能（`goVisualizer()` 会把工程移交过去）。
+ * 改动带来的连锁影响（已一并处理，改回去时注意）：
+ *   ① 二维码容量：visualizer.html(15 字符) → index.html(10 字符)，链接反而更短，更容易塞进一张码；
+ *   ② 主界面必须能处理 #p= 短链 —— `loadShareFromHash()` 已支持（会把数据取回并应用）；
+ *   ③ 可视化页自己生成的分享卡片现在也指向主界面，卡片与二维码语义一致。
  * @param {string} hash 形如 '#z=xxxx'（含前缀 #）；为空则返回不带 hash 的基址
  */
+export const SHARE_PAGE='index.html';   // 分享链接指向的页面（集中一处，便于以后调整）
 export function buildShareUrl(hash){
   const b=resolveSiteBase();
   const h=String(hash||'');
-  return b.url+'visualizer.html'+(h?(h.charAt(0)==='#'?h:('#'+h)):'');
+  return b.url+SHARE_PAGE+(h?(h.charAt(0)==='#'?h:('#'+h)):'');
 }
 /** 面向用户的来源说明（设置面板里显示"当前用的是哪个地址"） */
 export function siteSourceLabel(from){
