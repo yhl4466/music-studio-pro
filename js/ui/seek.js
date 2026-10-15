@@ -2,8 +2,8 @@
    末尾自注册 hooks.seek 与 engine 的 playheadHooks（timeline/engine 反向调用） */
 import { proj, actx, A, stepDurNow, fmtPos, stepWidth, effStepWidth, uiZoom } from '../core/state.js';
 import { $, el, clamp, UI, hooks } from '../core/util.js';
-import { Play, stopPlay, tickSched, playheadHooks } from '../audio/engine.js';
-import { ensureAudio, setGate, setAudioBusy } from '../audio/master.js';
+import { Play, stopPlay, playheadHooks, beginScheduling } from '../audio/engine.js';
+import { ensureAudio, setAudioBusy } from '../audio/master.js';
 import { VIRTUAL, labWidthPx } from './timeline.js';
 import { wakeViz } from './viz.js';
 
@@ -161,18 +161,19 @@ export function scrubSeek(clientX){
   if(x<0)s=0;
   seekToStep(s);
 }
+/* 起播（seek 后从指定位置开始）============================================
+   起播的异步等待/令牌/超时兜底统一收敛在 engine.js 的 beginScheduling()，
+   这里只负责"立起正在播的标记 + 设好起点 + 交给它排程"。
+   注意顺序：先把 Play.playing 立起来再 ensureAudio（它会 cancelAudioSleep），
+   否则排队中的挂起回调可能把刚唤醒的上下文又挂起（表现为"播放头在动但没声音"）。 */
 export function startFromStep(){
-  /* 与 togglePlay 同一套顺序：先立"正在播"标记再 ensureAudio，
-     避免排队中的挂起回调把刚唤醒的上下文又挂起（会变成"有播放头没声音"）。 */
   setAudioBusy(true);
   if(!ensureAudio()){setAudioBusy(false);return}
-  setGate(true,true);
-  Play.nom=actx.currentTime+.06;Play.q=[];Play.uiStep=-1;
   Play.hasStarted=true;   // 已经开始走过带：之后暂停再播放要从当前位置继续，而不是归零
-  Play.playing=true;setPlayUI(true);
-  tickSched();
-  Play.timer=setInterval(tickSched,30);
+  Play.playing=true;
+  setPlayUI(true);
   wakeVis();              // 播放头 UI 循环按需点火（见 visLoop 注释）
+  beginScheduling();      // 见 engine.js：await resume 确认 running 后才 setGate + 排第一批音符
 }
 export function bindScrubber(){
   const ruler=UI.ruler;

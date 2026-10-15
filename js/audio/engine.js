@@ -1,6 +1,6 @@
 /* [engine.js] source: Pro.html 1441-1443/1469, 1470-1529, 1531-1533, 1548-1572, 1573-1589, 1604-1620（音序器 + 走带） */
 import { proj, actx, A, stepDurNow, SPB, beatSteps, patRows, rowMidiAt } from '../core/state.js';
-import { clamp, icon, UI } from '../core/util.js';
+import { clamp, icon, UI, toast } from '../core/util.js';
 import { KIT, PREC_U_PER_STEP, trackRows, freqOf, pruneAcc } from '../core/theory.js';
 import { ensureAudio, setGate, setAudioBusy, scheduleAudioSleep } from './master.js';
 import { synthVoice, reserveVoices } from './synth.js';
@@ -130,10 +130,78 @@ export let metroOn=false;
 export function setMetroOn(v){metroOn=v}
 export let loopOn=true; // 整曲循环（默认开）；关闭 = 单次播放，播完自动停
 export function setLoopOn(v){loopOn=v}
+
+/* =========================================================================
+   调度前瞻（LOOKAHEAD_S）—— 修"声音断续/爆音"的关键参数
+   -------------------------------------------------------------------------
+   原值 0.18 秒。音频调度是"主线程提前把音符排进 Web Audio 时间轴"，因此
+   **只要主线程被阻塞超过前瞻窗口，音频就饿死 → 断续/爆音**。
+   实测（headless，播放 10 秒）主线程长任务最大 154ms；用户机器在有 GC、
+   布局重算、合成压力时更长，0.18s 直接被吃穿。
+   这也解释了"一直都有、只是现在更明显"：它不是某次提交引入的 bug，
+   而是这个窗口一直太窄。我上一轮把 UI 侧热点（getComputedStyle 680ms/8s）
+   清掉后，剩下真正影响听感的就是这一项。
+
+   取值权衡：
+     · 太小 → 主线程一卡就掉音（原状况）
+     · 太大 → 排队音符变多、内存与"改参数立刻生效"的手感变差
+   0.7 秒能吸收 700ms 的主线程停顿，而排程提前量用户听不出来
+   （首音仍按 Play.nom 精确排程，这不等于"起播延迟"）。
+   ========================================================================= */
+export const LOOKAHEAD_S=0.7;
+/* 首个音符相对"上下文开始跑"的提前量：音频线程要先跑热图（卷积混响尤其贵），
+   留一点余量比让第一声爆掉更好。 */
+export const START_LEAD=0.1;
+
+/* =========================================================================
+   统一排程入口 beginScheduling() —— 修"按播放要等一会儿才有声音"
+   -------------------------------------------------------------------------
+   症状：按播放后画面先动了，声音过一会儿才出来（用户实测反馈）。
+   根因：ensureAudio() 里 `if(actx.state==='suspended')actx.resume()` 是**即发即忘**。
+   resume() 返回 Promise，而上下文真正转到 running 需要时间（机器繁忙、或刚被
+   scheduleAudioSleep 挂起过时更久）。原实现不等它，紧接着就 tickSched() 排音符，
+   这些音符落在"仍挂起"的窗口里会被浏览器丢弃 —— 听感就是起播延迟。
+   修法：await resume（带超时兜底，因为个别环境该 Promise 不 resolve），
+   确认 running 后才设 nom 并排第一批音符；tickSched 内部也有 running 守卫。
+   令牌 _schedToken 保证 await 期间用户再按停止/播放时，这次排程作废。
+   ========================================================================= */
+let _schedToken=0;
+export function beginScheduling(){
+  const token=++_schedToken;
+  if(!actx){setAudioBusy(false);return}
+  const begin=()=>{
+    if(token!==_schedToken||!Play.playing)return;      // 期间被停止/重开 → 放弃
+    if(!actx||actx.state!=='running'){
+      setAudioBusy(false);                              // 不静默：否则表现为"播放头在动但没声音"
+      try{ toast('音频没能启动，请再点一次播放','err') }catch(e){}
+      return;
+    }
+    Play.nom=actx.currentTime+START_LEAD;Play.q=[];Play.uiStep=-1;
+    tickSched();
+    Play.timer=setInterval(tickSched,30);
+  };
+  if(actx.state==='running'){ begin(); return }
+  const p=(()=>{ try{ return actx.resume() }catch(e){ return null } })();
+  let done=false;
+  const fin=()=>{ if(done)return; done=true; begin() };
+  if(p&&typeof p.then==='function'){
+    p.then(fin,()=>fin());
+    setTimeout(fin,600);        // 兜底：resume 的 Promise 在某些环境不 resolve
+  }else{
+    setTimeout(fin,120);        // 老浏览器 resume() 返回 undefined：给点时间再查状态
+  }
+}
+/* 供 stopPlay/pausePlay 作废尚未落地的 async 起播 */
+export function cancelScheduling(){ _schedToken++ }
+
 export function tickSched(){
   if(!Play.playing||!actx)return;
+  /* 上下文还没真正 running：此刻排的音会被浏览器当作"挂起期间"处理掉，
+     听感就是"按了播放没声音，过一会儿才响"。直接返回，等它 running 再排
+     （startFromStep 会 await resume 并主动再调一次 tickSched）。 */
+  if(actx.state!=='running')return;
   const dur=stepDurNow();
-  const ahead=actx.currentTime+0.18;
+  const ahead=actx.currentTime+LOOKAHEAD_S;
   while(Play.nom<ahead){
     Play.nom+=dur;
     const sw=proj.swing/100;
@@ -180,6 +248,7 @@ export function finishSong(){
     播放按钮与空格键共用 togglePlay，如果暂停也走 stopPlay，"暂停后继续"就必然归零（Bug 1 的另一半）。 */
 export function pausePlay(){
   if(!Play.playing)return false;
+  cancelScheduling();                 // 作废可能还在 await resume 的起播
   Play.playing=false;Play.q=[];Play.uiStep=-1;
   if(Play.timer){clearInterval(Play.timer);Play.timer=null}
   setGate(false,true);
@@ -196,21 +265,22 @@ export function togglePlay(){
      把正在播放的上下文又挂起 —— 表现就是"按了播放、播放头在动但没有声音"。 */
   setAudioBusy(true);
   if(!ensureAudio()){setAudioBusy(false);return}
-  setGate(true,true);
   /* 修复 Bug 1：原来这里无条件 Play.step=0，导致"暂停后按播放"从头开始。
      现在只有"没播放过"（初始态 / stopPlay 后 / 曲终后）才归零；暂停态保持 Play.step 继续。
-     注意 nom（排期游标）始终重置为当前时间 +0.06，这是"从当前位置接着往前走"所必需的；
-     seek 过的位置由 seekToStep 直接写 Play.step，并把 hasStarted 置 true，因此不受本分支影响。 */
+     seek 过的位置由 seekToStep 直接写 Play.step 并把 hasStarted 置 true，因此不受本分支影响。 */
   if(!Play.hasStarted){
     Play.step=0;
   }
   Play.hasStarted=true;
-  Play.playing=true;Play.uiStep=-1;Play.nom=actx.currentTime+.06;Play.q=[];
+  Play.playing=true;
   playheadHooks.setPlayUI?.(true);
-  tickSched();
-  Play.timer=setInterval(tickSched,30);
+  /* 起播统一走 beginScheduling：它 await resume 确认 running 后才 setGate + 设 nom + 排音符。
+     原实现在这里同步 setGate(true) 并立刻按 actx.currentTime+.06 排程 —— 若上下文还在
+     resume 途中，这些音符会被丢弃，听感就是"按了播放要等一会儿才有声音"。 */
+  beginScheduling();
 }
 export function stopPlay(){
+  cancelScheduling();                 // 作废可能还在 await resume 的起播
   Play.playing=false;Play.q=[];Play.uiStep=-1;
   Play.hasStarted=false;      // 停止＝回到停止态：下次按播放从 0 开始（暂停不经过这里，见 togglePlay）
   if(Play.timer){clearInterval(Play.timer);Play.timer=null}
