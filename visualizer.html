@@ -176,6 +176,11 @@
     <!-- 提示行（批 B）：可见文本只有「状态徽标 + 关键量」，长详情进 title（悬停可看，信息不丢） -->
     <span class="vz-hint" id="vzHint">V1 步骤 2/7：正在初始化数据层…</span>
     <span class="vz-spacer"></span>
+    <!-- 版本标记：用来一眼判断"浏览器是否还在跑缓存的旧代码"。
+         GitHub Pages 给静态资源发 Cache-Control: max-age=600，推送后 10 分钟内
+         刷新页面仍可能执行旧模块（本会话实测因此误判过三次）。
+         改代码时**请随手改一下这个数字**（如 v3 → v4），就不用再猜缓存了。 -->
+    <span class="vz-build" id="vzBuild" title="代码版本标记：发新版后这里会变。若与最新提交不一致，说明浏览器在用缓存的旧模块，硬刷新（Ctrl+Shift+R）即可。">build v3</span>
     <span class="vz-lab" id="vzRenderLab">预渲染</span>
     <div class="vz-prog" id="vzRenderBar"><i id="vzRenderFill"></i></div>
   </div>

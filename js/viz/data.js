@@ -255,6 +255,8 @@ export async function loadProject(){
     const p=jsonToProject(json,'hash',hash.slice(1,3));
     if(p)return p;
     if(!info.reason)info.reason='分享链接无法解析';
+    tryReloadForStaleModules();          // 见下：短链打不开时自动强刷一次
+    return null;
   }else if(location.hash){
     info.reason='URL hash 不是工程链接（需 #s= / #z= / #l=）';
   }
@@ -266,6 +268,30 @@ export async function loadProject(){
     info.reason='浏览器里没有找到工程数据';
   }
   return null;
+}
+/* =========================================================================
+   陈旧模块自愈：短链打不开时自动强刷一次
+   -------------------------------------------------------------------------
+   为什么需要它：GitHub Pages 给所有静态资源发 `Cache-Control: max-age=600`，
+   于是**推送后 10 分钟内**再打开页面，浏览器仍然执行旧版模块 ——
+   表现就是"短链明明有数据，页面却提示分享链接无法解析 / 短链打开失败"。
+   这个坑实测误导过三次排查（我这边用全新 profile 测一直是好的）。
+
+   做法（刻意保持极简，因为本函数可能正运行在**旧版模块**里）：
+     · 只在"URL 带 hash 参数（本该有工程）且解析失败"时触发；
+     · sessionStorage 标记，**一次会话只刷一次** —— 万一后端真的宕机，
+       也只是刷一次就停，不会变成无限刷新；
+     · 只用 location.reload() 与 sessionStorage 这两个必然存在的 API，
+       不依赖任何新引入的东西。
+   ========================================================================= */
+function tryReloadForStaleModules(){
+  try{
+    if(typeof location==='undefined'||!location.hash||location.hash.length<3)return;
+    const KEY='vizStaleReload';
+    if(sessionStorage.getItem(KEY)==='1')return;    // 本次会话已刷过一次 → 不再刷
+    sessionStorage.setItem(KEY,'1');
+    location.reload();
+  }catch(e){ /* 无 sessionStorage（隐私模式等）→ 不刷，照常显示错误原因 */ }
 }
 
 /* =========================================================================

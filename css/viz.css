@@ -89,6 +89,9 @@ body{
 .vz-time{flex:none;font-family:var(--mono);font-size:var(--fs-label);color:var(--dim);min-width:96px;text-align:right}
 
 .vz-lab{flex:none;font-size:var(--fs-label);letter-spacing:var(--ls-wide);color:var(--mut)}
+/* 版本标记：一眼判断浏览器是否还在跑缓存的旧模块（见 visualizer.html 里的说明） */
+.vz-build{flex:none;font:600 10px var(--mono);color:var(--dim);opacity:.55;letter-spacing:.5px;
+  border:1px solid var(--hair-2);border-radius:var(--r-xs);padding:0 5px;cursor:help}
 /* 渲染器下拉：label 与 select 同排（嵌套 label 只为无障碍，不引入 for 属性）。
    批 B：可见的中文标签已进 .vz-sr（不占位），靠 aria-label / title 保留语义。 */
 label.vz-lab{display:inline-flex;align-items:center;gap:8px}

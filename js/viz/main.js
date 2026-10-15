@@ -1128,7 +1128,13 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 else { try{ startViz() }catch(e){ console.error('[viz] 启动失败',e); throw e } }
 
 /* 自检句柄：Console 里确认循环 / 尺寸 / 数据层 / 播放状态（第 4 步起含 transport） */
-window.__vz={view,list,current,select,register,data:dataMod,transport,registry:{register,list,select,current},
+/* 代码版本标记：与 visualizer.html 里的 `build vN` 对应。
+   为什么需要它：GitHub Pages 发 Cache-Control: max-age=600，推送后 10 分钟内
+   刷新页面仍可能执行旧模块 —— 本次会话因此把"已修好的功能"误判成"还是坏的"三次。
+   发新版时**请把 visualizer.html 的 build vN 与本常量一起 +1**，之后对照页面右下角
+   就能立刻知道浏览器跑的是不是最新代码。 */
+export const VZ_BUILD='v3';
+window.__vz={build:VZ_BUILD,view,list,current,select,register,data:dataMod,transport,registry:{register,list,select,current},
   dom:{stage,cv,overlay,hint,playBtn,stopBtn,cancelBtn,seek,pick,lenSel,posSub,posMain,timeEl,paramsBox},
   get renderParams(){return current()?current().params:null},
   get dataOk(){return dataOk},
