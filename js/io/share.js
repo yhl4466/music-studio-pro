@@ -29,9 +29,41 @@ export async function deflateStr(str){
   const buf=await new Response(stream).arrayBuffer();
   return bytesToB64(new Uint8Array(buf));
 }
+/* =========================================================================
+   解析上限（防载荷 DoS）—— 见下方 lzDecode / inflateB64 的具体说明
+   MAX_JSON_BYTES：解压/解码后允许的 JSON 文本上限。
+   正常工程远小于它：实测 24 小节 / 5 轨的工程序列化后约 96 KB，
+   后端单份上限是 512 KB（见 server/handler.js 的 MAX_BYTES）。
+   取 4 MB 是"比任何合法工程都宽松、同时把内存放大限制在可接受范围"的折中。
+   ========================================================================= */
+export const MAX_JSON_BYTES=4*1024*1024;
+
 export async function inflateB64(b64){
+  /* ⚠ 原来的实现是 `await new Response(stream).text()` —— 对解压产物**没有任何上限**。
+     而后端的 512 KB 限制只约束**压缩后**的请求体，所以一个 500 KB 的 deflate
+     解压炸弹（例如把 5 亿个重复字符压进去）能让页面先分配几百 MB 字符串，
+     且发生在任何字段校验之前。现在边读边累计，超限立即 abort。
+     abort 会取消流并释放已解压的部分，因此内存不会按最终产物大小增长。 */
   const stream=new Blob([b64ToBytes(b64)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-  return await new Response(stream).text();
+  const reader=stream.getReader();
+  const dec=new TextDecoder();
+  let total=0, out='';
+  try{
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done)break;
+      total+=value.length;
+      if(total>MAX_JSON_BYTES){
+        try{ await reader.cancel() }catch(e){}
+        throw new Error('分享数据解压后超过 '+Math.round(MAX_JSON_BYTES/1048576)+' MB 上限，已停止');
+      }
+      out+=dec.decode(value,{stream:true});
+    }
+    out+=dec.decode();
+  }finally{
+    try{ reader.releaseLock() }catch(e){}
+  }
+  return out;
 }
 /* ---------- 纯 JS LZSS（无需 CompressionStream，任何浏览器可用且同步解码） ---------- */
 export function toUtf8(str){
@@ -74,10 +106,29 @@ export function lzEncode(str){
   return new Uint8Array(out);
 }
 export function lzDecode(bytes){
-  const len=((bytes[0]<<24)|(bytes[1]<<16)|(bytes[2]<<8)|bytes[3])>>>0;
+  /* ⚠ 两处加固，缺一不可（原实现可被单条链接打成假死）：
+     ① 长度头与输入长度必须自洽。原来 `len` 完全取自载荷的前 4 字节，
+        且数据耗尽后 `rb()` 因 `bytes[pos++]===undefined` 静默返回 0 ——
+        于是 `while(out.length<len)` 永不收敛。代理实测：伪造长度头 3,000,000
+        → 536ms 返回 300 万个 0 且**不报错**；线性外推 0xFFFFFFFF ≈ 13 分钟
+        + 4.29e9 元素数组，必然 OOM。
+        压缩数据每个字节最多产出 1 位，所以"1 个输出字节"至少需要 1 个输入位，
+        即 len 不可能超过 (输入字节数 * 8)。以此作为硬上限。
+     ② 再加一个绝对上限 MAX_JSON_BYTES，防止"输入本身很大"时仍能撑出巨量输出。 */
+  const nIn=(bytes&&bytes.length)||0;
+  if(nIn<4)throw new Error('lz 数据太短');
+  const rawLen=((bytes[0]<<24)|(bytes[1]<<16)|(bytes[2]<<8)|bytes[3])>>>0;
+  const cap=Math.min(rawLen, (nIn-4)*8, MAX_JSON_BYTES);
+  if(rawLen>cap)throw new Error('lz 数据损坏（长度头与内容不符）');
+  const len=rawLen;
+
   let pos=4,acc=0,nbits=0;
   const rb=()=>{
-    if(nbits===0){acc=bytes[pos++];nbits=8;}
+    if(nbits===0){
+      /* 读越界必须报错，不能静默当 0 —— 否则循环条件永远成立（见上方说明） */
+      if(pos>=nIn)throw new Error('lz 数据损坏（提前结束）');
+      acc=bytes[pos++];nbits=8;
+    }
     return (acc>>>(--nbits))&1;
   };
   const rbN=bits=>{let v=0;for(let i=0;i<bits;i++)v=(v<<1)|rb();return v;};

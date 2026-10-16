@@ -1,7 +1,7 @@
 /* [project.js] source: Pro.html 2300-2349, 4723-4808（撤销栈 / 序列化 / 存档 / 导入导出 / 快照） */
 import { proj, setProj, newTrack, uid, ensurePatSizes, pruneTrackPrec, meterN, meterD, SPB, MAX_BARS } from '../core/state.js';
 import { PREC_U_PER_STEP, ROLES, ENGINE_DEF, setAcc, pruneAcc } from '../core/theory.js';
-import { toast, downloadBlob, hooks } from '../core/util.js';
+import { toast, downloadBlob, hooks, clamp } from '../core/util.js';
 import { LS_KEY, libMeta, archiveRead, archivePush, archiveRemove, archiveClear } from '../core/storage.js';
 import { Play, stopPlay, rebuildEvents } from '../audio/engine.js';
 
@@ -249,38 +249,86 @@ export function serializeProject(){
     }))
   });
 }
+/* =========================================================================
+   载入加固：把"来自不可信载荷"的字段全部夹到安全范围
+   -------------------------------------------------------------------------
+   为什么需要：applyProjectData 的输入来自分享链接/工程文件，属**不可信数据**，
+   而它此前只对 masterVol 的类型、meterN/D、steps 做了检查，其它字段是逐字复制。
+   审计实测确认了三条可被单条链接触发的故障：
+     ① bpm=1e400（JSON 解析成 Infinity）→ barSeconds()→0 → stepDurNow()→0
+        → 音乐调度器 `while(Play.nom<ahead){Play.nom+=0; fireStep(...)}` 永不收敛
+        （循环体内无 await、无上限，loopOn 默认开）→ 按一次播放即整页冻结。
+        同理 NaN 会让比较恒为 false，行为同样不可预期。
+     ② rows 无上限（steps/bpm/cut/vol… 都夹过，唯独漏了它）→
+        `Array.from({length:S},()=>new Array(rows))` 按"步数 × rows"分配：
+        载荷给 rows:100000000 即内存爆炸。合法值只由 timeline.js 的 octRowsOf 写入（15/22/29）。
+     ③ masterVol=Infinity → 建音频图时 `out.gain.value=Infinity`，
+        Web Audio 的 float 参数拒绝非有限值并抛 TypeError，
+        异常穿出无 try/catch 的 ensureAudio() → 播放再也起不来（本次会话内无法恢复）。
+        而且 setMasterVol 里的 clamp(0,1.4) 在建图**之前**是空操作（那时 A/actx 还是 null），
+        也不回写 proj.masterVol，所以真正的收口只能在这里。
+   ========================================================================= */
+const BPM_MIN=20, BPM_MAX=400;        // 与 UI 的取值范围保持一致的量级
+const MAX_TRACKS=64;                  // 正常工程 4~8 轨；64 已远超实际
+const MAX_TRACK_ROWS=64;              // octRowsOf 产出 15/22/29，64 是宽松上限
+const MAX_MASTER_VOL=1.4;             // 与 setMasterVol 的上限一致
+const MAX_NOSC=32;                    // 单声部振荡器数上限（UI 上限是 8）
+
 export function applyProjectData(data){
+  if(!data||typeof data!=='object')throw new Error('工程数据为空或格式不对');
   // ver<6 的旧档：prec 的 u 单位是 1/3 步（1 步=3u），现在 1 步=PREC_U_PER_STEP u → 整体 ×(PREC_U_PER_STEP/3)
   // ver<7 的旧档：没有 acc 字段（= 全自然音）→ 下面按“无标记”读入；ver≥7 才有稀疏 acc
   const legacy=((+data.ver||1)<6)||data.spb===12;
   const kU=legacy?(PREC_U_PER_STEP/3):1;   // 3u→60u 即 ×20
   setProj(data);
-  if(typeof proj.masterVol!=='number')proj.masterVol=1;
+  /* 先夹 bpm / meterN / meterD —— 因为它们参与 SPB()/barSeconds()，
+     而下面的 steps 上限、ensurePatSizes 的分配量都依赖它们。顺序不能挪。 */
+  const bpm=Number(proj.bpm);
+  proj.bpm=(isFinite(bpm)&&bpm>=BPM_MIN&&bpm<=BPM_MAX)?bpm:120;
+  if(typeof proj.masterVol!=='number'||!isFinite(proj.masterVol))proj.masterVol=1;
+  else proj.masterVol=clamp(proj.masterVol,0,MAX_MASTER_VOL);
   proj.spb=16; // 全局拍切分已取消：统一按“每拍 4 格”的十六分网格，spb 仅为惰性字段
   if(!proj.meterN||proj.meterN<1||proj.meterN>16)proj.meterN=4;
   if(!proj.meterD||[1,2,4,8,16].indexOf(proj.meterD)<0)proj.meterD=4;
   // 超长档（旧版不存在，可能是手改 JSON / 异常分享链接）截断到曲长上限，避免渲染爆炸
   const lim=MAX_BARS*Math.max(1,SPB());
   if(proj.steps>lim)proj.steps=lim;
-  proj.tracks=(data.tracks||[]).map(d=>{
+  const rawTracks=Array.isArray(data.tracks)?data.tracks:[];
+  proj.tracks=rawTracks.slice(0,MAX_TRACKS).map(d=>{
     const role=ROLES[d.role]?d.role:'custom';
     const t=newTrack(d.kind||'mel',role,{name:d.name,color:d.color,engine:d.engine,shift:d.shift});
     if(t.kind==='mel'&&!ENGINE_DEF[t.engine])t.engine='pluck';
-    Object.assign(t,{osc:d.osc,cut:d.cut,res:d.res,env:d.env,detune:d.detune,nOsc:d.nOsc,
-      vol:d.vol!=null?d.vol:.85,pan:d.pan||0,reverb:d.reverb||0,delay:d.delay||0,mute:!!d.mute,solo:!!d.solo,collapsed:!!d.collapsed});
+    t.osc=d.osc;t.cut=d.cut;t.res=d.res;t.env=d.env;t.detune=d.detune;t.nOsc=d.nOsc;
+    t.vol=(d.vol!=null&&isFinite(d.vol))?clamp(d.vol,0,MAX_MASTER_VOL):.85;
+    t.pan=isFinite(d.pan)?clamp(d.pan,-1,1):0;
+    t.reverb=(isFinite(d.reverb)?clamp(d.reverb,0,1):0);
+    t.delay=(isFinite(d.delay)?clamp(d.delay,0,1):0);
+    t.mute=!!d.mute;t.solo=!!d.solo;t.collapsed=!!d.collapsed;
+    t.cut=isFinite(d.cut)?clamp(d.cut,60,18000):undefined;
+    t.res=isFinite(d.res)?clamp(d.res,0,24):undefined;
+    t.nOsc=isFinite(d.nOsc)?Math.round(clamp(d.nOsc,1,MAX_NOSC)):undefined;
+    t.detune=isFinite(d.detune)?clamp(d.detune,-1200,1200):undefined;
+    /* env 可能是 null / 非对象（手工编辑或第三方生成的工程），
+       而侧栏 renderTrackTab 会直接读 t.env.a —— 那种情况下会抛
+       "Cannot read properties of null (reading 'a')" 让检查器整块空白。
+       viz/data.js 的 normalizePayload 早已做同样防护（`d.env&&typeof d.env==='object'?d.env:{}`），
+       这里补齐，保持两边标准一致。 */
+    if(!t.env||typeof t.env!=='object')t.env={};
     if(t.kind==='mel'&&(!t.osc||!ENGINE_DEF[t.engine])){
       const dd=ENGINE_DEF[t.engine];t.osc=dd.osc;t.cut=dd.cut;t.res=dd.res;
       t.env=Object.assign({},dd.env);t.detune=dd.detune;t.nOsc=dd.nOsc;
     }
     t.pat=Array.isArray(d.pat)?d.pat.map(col=>Array.isArray(col)?col.slice():[]):[];
-    t.rows=(d.rows&&d.rows>=7)?d.rows:0;
-    t.keyOct=(d.keyOct&&d.keyOct>=1)?d.keyOct:0;
+    /* rows：合法值只由 octRowsOf 产出（15/22/29）。此前无上限，
+       载荷给个大数就会按"步数 × rows"分配二维数组 → 内存爆炸。 */
+    t.rows=(isFinite(d.rows)&&d.rows>=7)?Math.round(Math.min(d.rows,MAX_TRACK_ROWS)):0;
+    t.keyOct=(d.keyOct&&d.keyOct>=1)?clamp(Math.round(d.keyOct),1,8):0;
     // 旧档的 prec 时值刻度 ×kU（durU 缺省：旧档 4u=1/3 拍、新档 PREC_U_PER_STEP=1 步）
-    t.prec=Array.isArray(d.prec)?d.prec.map(p=>({
+    t.prec=Array.isArray(d.prec)?d.prec.slice(0,4096).map(p=>({
       row:p.row,
       u:Math.round((+p.u||0)*kU),
       durU:Math.round((+p.durU||(legacy?4:PREC_U_PER_STEP))*kU),
-      vel:+p.vel||.8
+      vel:isFinite(p.vel)?clamp(+p.vel,0,1):.8
     })):[];
     t.id=d.id||uid();
     // 升降号（acc）：稀疏读入并顺手消毒——只收 ±1，0/垃圾值直接丢弃；旧档没有 d.acc = 全自然音
