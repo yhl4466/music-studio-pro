@@ -32,11 +32,14 @@ import { SCALES, SCALE_NAMES, NOTE_SEMI, NOTE_NAMES, PREC_U_PER_STEP,
 /* =========================================================================
    1. 常量
    ========================================================================= */
-export const FFT_SIZE=2048;                 // FFT 长度（T1 固定值）
-export const HOP_SIZE=1024;                 // 默认跳距（50% 重叠）
-export const BIN_COUNT=FFT_SIZE>>1;         // 可用频点数 1024（不含 Nyquist bin）
+/* 这几个常量**只在文件内使用**（本模块唯一对外导出是 analyze），所以不加 export。
+   顺带说明：transport.js 里另有一份同名 FFT_SIZE（实时分析的 analyser.fftSize），
+   两者用途不同、各自独立。 */
+const FFT_SIZE=2048;                 // FFT 长度（T1 固定值）
+const HOP_SIZE=1024;                 // 默认跳距（50% 重叠）
+const BIN_COUNT=FFT_SIZE>>1;         // 可用频点数 1024（不含 Nyquist bin）
 
-export const YIELD_EVERY=24;                // 每处理 24 帧让出一次主线程（T1 规格）
+const YIELD_EVERY=24;                // 每处理 24 帧让出一次主线程（T1 规格）
 const ABORT_EVERY=8;                        // 每 8 帧查一次取消标志（比让出更密，取消响应更快）
 const SPECTRO_STEP=4;                       // 缩略频谱：每 4 帧存 1 列
 const SPECTRO_ROWS=512;                     // 缩略频谱列高（bin 两两合并）
@@ -161,24 +164,6 @@ function realMag(zre,zim,outMag){
   }
   return outMag;
 }
-/**
- * 诊断/自检用：对一段时域输入做 Hann 窗 + 实数 FFT，返回 1024 点幅度谱。
- * 频谱主路径不调用这里（避免每帧多一次函数调用与内存分配），自检与将来的单帧分析用。
- * @param {Float32Array} input 长度任意（不足 2048 时补零，超出截断）
- * @param {Float32Array} [dst] 输出缓冲（长度 ≥ 1024），缺省新建
- */
-export function fftMagnitude(input,dst){
-  initTables();
-  const out=dst||new Float32Array(BIN_COUNT);
-  const zre=new Float32Array(M), zim=new Float32Array(M);
-  const n=input?Math.min(FFT_SIZE,input.length):0;
-  for(let i=0;i<M;i++){
-    const j=2*i;
-    zre[i]=(j<n)?input[j]*_hann[j]:0;
-    zim[i]=(j+1<n)?input[j+1]*_hann[j+1]:0;
-  }
-  return realMag(zre,zim,out);
-}
 
 /* =========================================================================
    3. 主线程让出（与 viz/audio.js 同款：MessageChannel 优先，不用 setTimeout）
@@ -197,21 +182,7 @@ const yieldNow=(()=>{
 const now=()=>(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
 
 /* =========================================================================
-   4. 工具
-   ========================================================================= */
-/** 把曲线按自身峰值归一化到 0-1（T3/T4 画图直接可用）；全零曲线返回全零，不产生 NaN。 */
-export function normalizeCurve(src,dst){
-  const n=src?src.length:0;
-  const out=(dst&&dst.length>=n)?dst:new Float32Array(n);
-  let mx=0;
-  for(let i=0;i<n;i++){ const v=src[i]; const a=v<0?-v:v; if(a>mx)mx=a }
-  const inv=mx>EPS?1/mx:0;
-  for(let i=0;i<n;i++)out[i]=src[i]*inv;
-  return out;
-}
-
-/* =========================================================================
-   5. MIDI 侧分析（只读遍历 pat / prec，不调 rebuildEvents）
+   4. MIDI 侧分析（只读遍历 pat / prec，不调 rebuildEvents）
    ========================================================================= */
 /** 12 音直方图 → 最可能的调式。返回 {tonic,tonicName,mode,modeName,name,confidence,detected,declared} */
 function inferKey(hist,noteCount,proj){
@@ -317,7 +288,7 @@ function analyzeMidi(proj){
 }
 
 /* =========================================================================
-   6. 主入口：analyze(buffer, proj, opts)
+   5. 主入口：analyze(buffer, proj, opts)
    ========================================================================= */
 /**
  * 分析整段音乐。耗时与音频时长成正比（72 秒 ≈ 0.7 秒级），期间每 24 帧让出主线程。

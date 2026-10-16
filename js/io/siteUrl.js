@@ -97,12 +97,9 @@ function ensureDir(u){
   const s=String(u||'');
   return s.endsWith('/')?s:(s+'/');
 }
-/** 可视化页的对外地址 —— ⚠ 当前**没有任何调用者**（保留仅为可能的"直接分享可视化页"需求）。
-    分享链接一律走 buildShareUrl()，它指向 SHARE_PAGE（主界面 index.html）。 */
-export function publicVisualizerUrl(){
-  const b=resolveSiteBase();
-  return b.url+'visualizer.html';
-}
+/* 说明：这里曾有一个 publicVisualizerUrl()，返回可视化页的对外地址。
+   它从未被任何代码调用（分享链接一律走 buildShareUrl()，指向 SHARE_PAGE = 主界面 index.html），
+   属"猜测性预留 API"，已删除。若将来真的要提供"直接分享可视化页"，再按需加回来。 */
 /**
  * 生成分享链接（基址 = 对外可访问地址，**不是** location.href）。
  * 这是关键修复：原来 shareLink 用 location.href 拼，在 localhost 上分享出去的链接别人打不开。

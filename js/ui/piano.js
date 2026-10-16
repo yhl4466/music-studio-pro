@@ -17,7 +17,6 @@ export const PIANO_MIN=36, PIANO_MAX=84; // 起点范围：C2 .. C6
 export const PIANO_W=[0,2,4,5,7,9,11,12,14,16,17,19,21,23,24,26,28,29,31,33,35,36];
 export const PIANO_B=[1,3,6,8,10,13,15,18,20,22,25,27,30,32,34];
 export const KMAP={a:0,w:1,s:2,e:3,d:4,f:5,t:6,g:7,y:8,h:9,u:10,j:11,k:12,o:13,l:14,p:15,';':16};
-export const KMAP_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B','C','C#','D','D#','E'];
 /* 某个 MIDI 的音名（如 60 → C4）：钢琴起点标签与状态回显共用 */
 export function pianoNameOf(midi){return NOTE_NAMES[((midi%12)+12)%12]+(Math.floor(midi/12)-1)}
 export let pianoKeys={};
@@ -44,11 +43,6 @@ export function pianoNoteOff(off){
   const h=pianoHold[off];
   if(h){try{h.kill()}catch(e){}}
   delete pianoHold[off];
-}
-export function pianoPlay(off,vel){ // 兼容旧调用（短音）
-  const h=pianoNoteOn(off,vel);
-  if(h)setTimeout(()=>{try{h.kill()}catch(e){}},150);
-  return h;
 }
 export let pianoDrag=null; // 键盘拖动滑奏状态 {off,id}
 export function pianoUnitW(){

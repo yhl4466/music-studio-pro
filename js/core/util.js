@@ -147,9 +147,15 @@ export function downloadBlob(blob,name){
   setTimeout(()=>{URL.revokeObjectURL(url);a.remove()},400);
 }
 
-/* 跨模块晚绑定注册表：由 main.js 在 boot 前注入，用于打断 ui ↔ audio/io 的循环依赖 */
+/* 跨模块晚绑定注册表，用于打断 ui ↔ audio/io 的循环依赖。
+   注入方式：各模块**直接赋值**（不是批量 setHooks），例如
+     main.js    → hooks.inspector / hooks.ui / hooks.undo / hooks.afterLoad / hooks.save
+     seek.js    → hooks.seek        sidebar.js → hooks.sidebar
+     toolbar.js → hooks.toolbar     coverUI.js 会读取 hooks.getTitle / getBpm / getShareUrl 等
+   所以下面这个字面量只是**初始骨架**，运行时键会比它多 —— 这是有意设计，不是遗漏。
+   原先还有一个 setHooks(map)，从没有任何调用者（所有模块都用直接赋值），
+   属死接口，已删除；将来若真需要批量注册再按需加回。 */
 export const hooks={inspector:null,afterLoad:null,ui:null,undo:null,seek:null,toolbar:null};
-export function setHooks(map){Object.assign(hooks,map||{})}
 
 /* =========================================================================
    滑块已取值段（bug 修复）

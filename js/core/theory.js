@@ -27,19 +27,12 @@ export const DEG_CUM={};
 for(const k in SCALES){DEG_CUM[k]=SCALES[k].slice()} // 各音级到主音的半音偏移（切勿再累加）
 /* 度数行 -> 半音（0..23+，行 0..14，7 与 14 为八度根音）*/
 export function degSemi(scaleKey,d){const cum=DEG_CUM[scaleKey];const oct=Math.floor(d/7);const i=d%7;return oct*12+cum[i]}
-/* 最接近的行（给定半音 0..24）*/
-export function semiToDeg(scaleKey,sem){
-  let best=0,bd=99;
-  for(let d=0;d<=14;d++){const dd=Math.abs(degSemi(scaleKey,d)-sem);if(dd<bd){bd=dd;best=d}}
-  return best;
-}
 export const MEL_ROWS=15; // 默认：两个八度的音阶级数行（老工程/通用）
 /* 每轨独立音域：
    t.rows   — 该轨显示的音阶行数（oct*7+1：2→15、3→22、4→29）；缺省=MEL_ROWS(2 八度)
    t.keyOct — 该轨“基音八度”锚点（行 0 = 该八度的主音）；缺省跟随工程 keyOct */
 export function trackRows(t){return t&&t.kind==='drum'?KIT.length:(t&&t.rows&&t.rows>=7?t.rows:MEL_ROWS)}
 export function octRowsOf(oct){return oct*7+1}
-export const ROW_MIDI=[]; // 预缓存纯函数
 export function keyBaseMidi(keyName,octave){return (octave+1)*12+NOTE_SEMI[keyName]}
 export function midiOfRow(scaleKey,keyName,keyOct,shift,d){return keyBaseMidi(keyName,keyOct)+shift+degSemi(scaleKey,d)}
 export function freqOf(midi){return 440*Math.pow(2,(midi-69)/12)}

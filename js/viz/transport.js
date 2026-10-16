@@ -16,7 +16,7 @@ export const SMOOTHING=0.8;
 const START_LEAD=0.012;             // start() 的预排时间（等音频线程下一块，避免被钳到“立即”；过大会让位置显示偏慢）
 
 let _actx=null,_analyser=null,_gain=null,_dest=null;
-let _buffer=null,_bufferFrames=0;
+let _buffer=null;
 let _state='idle',_baseOffset=0,_startedAt=0,_durSec=0;
 let _leadSec=START_LEAD;
 let _src=null,_srcToken=0,_ended=false;
@@ -87,7 +87,6 @@ export function load(buffer){
   if(!buffer||!buffer.length)throw new Error('load() 需要一个有效的 AudioBuffer');
   _dropSource();
   _buffer=buffer;
-  _bufferFrames=buffer.length;
   _durSec=buffer.duration||(buffer.length/buffer.sampleRate)||0;
   _baseOffset=0;
   _ended=false;
@@ -97,11 +96,9 @@ export function load(buffer){
   return _durSec;
 }
 export function state(){ return _state }
-export function getState(){ return _state }
 export function isPlaying(){ return _state==='playing' }
 export function getDuration(){ return _durSec }
 export function getBuffer(){ return _buffer }
-export function getFrames(){ return _bufferFrames }
 /** 当前播放位置（秒）：只在 playing 时用 actx.currentTime 推算，其余状态返回已记录的偏移 */
 export function getCurrentTime(){
   if(_state==='playing'&&_actx){
@@ -165,11 +162,6 @@ export function seek(seconds){
   _notifyTime();
   return getCurrentTime();
 }
-/** 预留：smoothingTimeConstant 可被渲染器按需微调（默认 0.8） */
-export function setSmoothing(v){
-  if(!_analyser)return;
-  _analyser.smoothingTimeConstant=clamp(Number(v)||SMOOTHING,0,1);
-}
 export function onStateChange(cb){ if(typeof cb==='function')_stateCbs.push(cb); return ()=>{ const i=_stateCbs.indexOf(cb); if(i>=0)_stateCbs.splice(i,1) } }
 export function onTimeUpdate(cb){ if(typeof cb==='function')_timeCbs.push(cb); return ()=>{ const i=_timeCbs.indexOf(cb); if(i>=0)_timeCbs.splice(i,1) } }
 /** 供主循环每帧调用：按 actx.currentTime 刷新一次位置（播放中才会变化） */
@@ -178,6 +170,6 @@ export function notifyTime(){ return _notifyTime() }
 export function dispose(){
   _dropSource();
   const a=_actx; _actx=null; _analyser=null; _gain=null; _dest=null;
-  _buffer=null; _bufferFrames=0; _durSec=0; _baseOffset=0; _state='idle';
+  _buffer=null; _durSec=0; _baseOffset=0; _state='idle';
   try{ if(a&&typeof a.close==='function'){ const r=a.close(); if(r&&r.catch)r.catch(()=>{}) } }catch(e){}
 }

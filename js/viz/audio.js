@@ -41,7 +41,6 @@ const yieldNow=(()=>{
 let _busy=false,_cancelFlag=false,_activeCtl=null;
 const _cancelWaiters=[];                  // 渲染阶段等待取消通知的 resolver
 export function isRendering(){ return _busy }
-export function canCancel(){ return _busy }
 /** 用户主动取消：JS 侧立即结束，后台渲染结果被丢弃；正在渲染的上下文不再被复用 */
 export function cancelRender(){
   if(!_busy)return false;
@@ -555,11 +554,10 @@ export function workUnits(proj){
   return u;
 }
 
-/* 秒数 → m:ss（界面显示用） */
-export function fmtSec(sec){
-  const s=Math.max(0,Math.round(Number(sec)||0));
-  return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
-}
+/* 秒数 → m:ss。注意：可视化页的时间显示目前在 main.js 里内联了同一套实现
+   （`Math.floor(s/60)+':'+String(s%60).padStart(2,'0')`），本函数没有调用者，
+   所以已删除以免留下第二份"看起来该用但没人用"的实现。
+   若将来要多处复用，应该抽出唯一实现并让两边都调它，而不是各留一份。 */
 
 /* =========================================================================
    诊断：__vz.diagnose() 的阶梯——严格串行，每档确认上一档真正结束

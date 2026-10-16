@@ -1264,19 +1264,10 @@ export function pasteRegion(){
   const b0=Math.floor(at/SPB())+1;
   toast('已粘贴 '+clip.len+' 步到「'+(t.name||'音轨')+'」第 '+b0+' 小节起'+(wrote?'':'（内容与原位相同）'),'ok','paste');
 }
-export function clearRegionAndClipUI(){
-  clearRegionUI();
-  updateRegionInfo();
-  updClipUI();
-}
 /* ================= 选区节奏细分（音符级精确时值） =================
    prec 的 u 单位：1 步 = PREC_U_PER_STEP(60)u、1 拍 = 240u。
    把选区里每拍的起音改成 N 等分精确时值：N=2/3/4/5/6 → 每音 120/80/60/48/40 u（整数，无浮点误差），
    N=0 表示“还原成网格”（精确音符落回最近的格子）。由 fireStep 按 u 精确排时，其它轨不受影响。 */
-export function dropTrackPrec(ti){
-  const t=proj.tracks[ti];
-  if(t&&t.prec&&t.prec.length)t.prec=[];
-}
 /* 统计某拍(4 步 b..b+3)内的旋律起音（同一行连续只算 1 个） */
 export function beatOnsets(t,b){
   const out=[];const S=proj.steps;const e=Math.min(S-1,b+3);
@@ -1558,8 +1549,6 @@ function setAccFocus(ti,r,s){
   const cell=(c&&c[r])?c[r][s]:null;
   if(cell){cell.classList.add('accFocus');accFocusCell=cell}
 }
-/* 供自检脚本（_v7_acc_check.mjs）与将来的键盘光标导航设定焦点格：与鼠标点击同一条路径 */
-export function setAccFocusAt(ti,r,s){setAccFocus(ti,r,s)}
 /* 作用范围：有选区 → 选区步区间内该轨所有“有音符”的格；否则 → 焦点格（必须本身是音符） */
 function accScope(){
   const selT=(regionSel&&regionSel.ti>=0)?proj.tracks[regionSel.ti]:null;
@@ -1577,7 +1566,6 @@ function accScope(){
   if(f&&t&&t.pat[f.s]&&t.pat[f.s][f.r]>0)return {list:[{ti:f.ti,r:f.r,s:f.s}],scope:'cell'};
   return {list:[],scope:'none'};
 }
-export function accTargetCount(){const s=accScope();return s.list?s.list.length:0}
 function paintAccCell(ti,r,s){
   const c=proj._uiCache&&proj._uiCache.cells?proj._uiCache.cells[ti]:null;
   const cell=(c&&c[r])?c[r][s]:null;

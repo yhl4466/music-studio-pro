@@ -27,7 +27,7 @@ const ID_CHARS='abcdefghijklmnopqrstuvwxyz0123456789';
      第 2 版：干脆去掉服务端限流，全靠控制台 WAF —— 安全但少了一层，且要人工配。
      第 3 版（现在）：**内存滑动窗口**。它不产生任何 KV 写，所以没有第 1 版的额度问题，
              又能挡住最常见的"同一个 IP 猛刷"。
-   ⚠ 实测结论（2026-10，线上 main.mp-share-87y.pages.dev）：**在 Pages 上它基本拦不住**。
+   ⚠ 实测结论（2026-10，部署在 Cloudflare Pages 上）：**在 Pages 上它基本拦不住**。
      连续发 60 次 + 并行 20 次，共 120 次创建请求**全部返回 201**，一次 429 都没有。
      原因是 Cloudflare 把请求分散到多个 isolate，每个 isolate 只看到几个请求，
      各自的计数都远达不到阈值 —— 内存状态不跨 isolate 共享。
@@ -73,10 +73,9 @@ async function rateLimited(env,req){
   /* ② 内存兜底（始终生效，不碰 KV） */
   return memoryRateLimited(ip);
 }
-/** 供自检/测试读取当前阈值 */
-export function rateLimitConfig(){ return {windowMs:RL_WINDOW_MS,max:RL_MAX_POSTS} }
-/** 仅供测试：清空内存计数 */
-export function _resetRateLimit(){ _hits.clear() }
+/* 说明：这里原有 rateLimitConfig() 与 _resetRateLimit() 两个"供自检/测试"的导出，
+   但仓库里没有任何测试文件引用它们（当时的验证是在仓库外临时跑的），属死接口，已删除。
+   阈值本身就是上面的 RL_WINDOW_MS / RL_MAX_POSTS 两个常量，需要时直接读即可。 */
 function cors(){
   return {
     'Access-Control-Allow-Origin':'*',
