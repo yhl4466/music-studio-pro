@@ -12,6 +12,9 @@ import { encodeWav, exportWavRender } from '../audio/render.js';
 import { AI, AI_STYLES, SEC_NAME, aiSeedLocked, setAiSeedLocked, planSections, barDyn } from '../ai/styles.js';
 import { aiComposeAll, aiRegenTrack, aiExtendTrack, aiStyleTransfer } from '../ai/compose.js';
 import { serializeProject, applyProjectData, autosaveNow, loadAutosave, quickSave, quickLoad, saveProjectFile, onFileImport, undoH, pendingPre, setPendingPre, beginEdit, commitEdit, doUndo, doRedo, pushSnap, refreshUndoUI, restoreSnapshot, stopIfPlaying, afterLoad, markDirtyUI, onSaveState, saveStatus } from '../io/project.js';
+/* 赞助入口的文案与地址统一由 ui/sponsor.js 提供，避免"菜单一套、帮助弹窗又一套"两份真相。
+   无循环依赖：sponsor.js 只 import core/util.js，不反向依赖本模块。 */
+import { hasSponsor, readSponsorUrl } from './sponsor.js';
 import { clockText } from '../core/storage.js';
 import { shareLink, loadShareFromHash } from '../io/share.js';
 import { exportMidiUI, importMidiUI } from '../io/midi.js';
@@ -485,6 +488,25 @@ export function syncAllUI(){
   UI.masterVol.value=Math.round(proj.masterVol*100);UI.masterV.textContent=Math.round(proj.masterVol*100);
   setMasterVol(proj.masterVol);
 }
+/* 帮助弹窗底部的「支持开发」小版块（放在小贴士之后、关闭按钮之前）。
+   ⚠ 未配置爱发电地址时返回空串 → 不渲染任何东西（与菜单入口同一套"未配置就不出现"的语义）。
+   文案与地址都取自 ui/sponsor.js，不在这里重复写一份，避免两处漂移。
+   做成整行可点的 <a>，因为它出现在弹窗里（不是菜单），用链接比按钮更自然，
+   且能直接享用浏览器"新标签页打开"的默认行为（配 rel="noopener noreferrer"）。 */
+function sponsorBlock(){
+  if(!hasSponsor())return '';
+  const url=readSponsorUrl();
+  return `
+    <div style="height:1px;background:var(--line);margin:12px 0"></div>
+    <div class="small" style="line-height:1.8">
+      ・ 这个工具对你的创作有帮助吗？欢迎
+      <a href="${url}" target="_blank" rel="noopener noreferrer"
+         style="color:var(--acc);font-weight:700;text-decoration:underline">${icon('coffee')} 请我喝杯咖啡</a>
+      —— 你的支持会用在持续维护与功能更新上。<br>
+      ・ <span style="color:var(--dim)">全部功能免费、无广告、无功能锁；不赞助也完全不影响使用。</span>
+    </div>`;
+}
+
 export function showHelp(){
   const content=`
     <div style="font-size:17px;font-weight:800;margin-bottom:2px">${icon('keys')} 智能音乐工坊 PRO — 使用教程</div>
@@ -610,6 +632,7 @@ export function showHelp(){
     <div class="helpLine"><kbd>Tab</kbd><span>全站键盘导航（Tab 前进 / Shift+Tab 后退，聚焦处有蓝色外环）</span></div>
     <div style="height:1px;background:var(--line);margin:12px 0"></div>
     <div class="small" style="color:var(--dim)">小贴士：量化后看不懂？被移动的音会闪绿确认；不满意直接 Ctrl+Z。AI 高潮偶发六度/八度跳跃与模进，不满意可「换随机种子」。</div>
+    ${sponsorBlock()}
     <div style="margin-top:14px;text-align:right"><button class="btn acc" id="helpClose">开始创作 ${icon('music')}</button></div>`;
   /* 弹窗结构（批 C 第二部分：动效需要的两个 class 加在这里，id/class 命名不变）：
      .modal-overlay = 遮罩（420ms 淡入），.modal-card = 卡片（延迟 60ms + scale(.94) 淡入）→ 分层感。
