@@ -11,6 +11,7 @@ import { structural, paintAll, relabelRows } from './ui/timeline.js';
 import { beginEdit, commitEdit, refreshUndoUI, markDirtyUI, loadAutosave, installAutosaveGuards, autosaveNow, flushAutosave } from './io/project.js';
 import { loadShareFromHash } from './io/share.js';
 import { bindVizLink } from './ui/vizlink.js';
+import { bindSponsor } from './ui/sponsor.js';
 
 /* 顶层错误上报（原 index.html 顶层） */
 window.addEventListener('error',e=>showErr(e.message||'未知错误'));
@@ -71,6 +72,7 @@ async function boot(){
   bindTheme();
   bindExtras();
   bindVizLink();
+  bindSponsor();      // 未配置 <meta name="afdian-url"> 时自动不插入任何 DOM
   renderPiano();
   const demo=(location.hash==='#demo'); // #demo：跳过存档/分享链接，强制载入示例工程
   let had=false,shared=false;
