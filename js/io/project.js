@@ -11,9 +11,21 @@ import { Play, stopPlay, rebuildEvents } from '../audio/engine.js';
 export const undoH={stack:[],redo:[]};
 export let pendingPre=null;
 export function setPendingPre(v){pendingPre=v}
+/* beginEdit：取一份"编辑前快照"，与 commitEdit 配对构成一次可撤销事务。
+   ⚠ 失败路径的处理很关键：serializeProject() 在"工程尚未载入"时会抛
+   （`proj.tracks.map` 于空 proj 上），此时把 pendingPre 置成 ''。
+   而 commitEdit 原来对 '' 直接 return 且**不复位**，于是 '' 会一直留着 ——
+   之后每次 beginEdit 都因 `pendingPre===null` 为假而跳过取快照，
+   commitEdit 又永远早退 ⇒ **本会话撤销/重做彻底失效且无任何提示**。
+   触发窗口真实存在：用 #p= 短链打开 index.html 时，fetchShortLink 最长 15s 超时，
+   这期间界面已可交互，用户此时做任何编辑动作（如加一条轨）就会走到这里。
+   现在把复位逻辑收在 commitEdit 里（见下），这里保持"失败就标记"的语义。 */
 export function beginEdit(){ if(pendingPre===null){try{pendingPre=serializeProject()}catch(e){pendingPre=''}} }
 export function commitEdit(){
-  if(pendingPre===null||pendingPre==='')return;
+  /* 注意 pendingPre==='' 这个"毒化"状态的处理顺序（见 beginEdit 的注释）：
+     必须先复位再判空，否则一次序列化失败会让本会话所有撤销永久失效。 */
+  if(pendingPre===''){pendingPre=null;return}
+  if(pendingPre===null)return;
   const pre=pendingPre;pendingPre=null;pushSnap(pre);
 }
 export function pushSnap(pre){
@@ -23,6 +35,21 @@ export function pushSnap(pre){
     undoH.stack.push(pre);
     if(undoH.stack.length>20)undoH.stack.shift();
     undoH.redo=[];
+    /* 【重要】这里置"未保存"标记，而不是在每条编辑路径上各加一次 markDirtyUI()。
+       为什么：本函数是全项目**唯一**能准确判断"工程真的变了"的位置（上一行的 cur===pre）。
+       而各编辑路径（画笔点音符 setCellVal / 擦除 / 量化 / 混音滑块 / 粘贴 …）并不会
+       都记得调 markDirtyUI，实测确认：
+         · setCellVal 后      saveStatus().dirty === false
+         · 改音量滑块后       saveStatus().dirty === false
+         · 量化后            saveStatus().dirty === false
+       后果是严重的**静默数据丢失**：flushAutosave() 以 _dirty 为唯一依据
+       （`if(!_dirty&&!_timer)return {ok:true,reason:'clean'}`，实测返回 reason:'clean'），
+       而它在 pagehide/beforeunload/visibilitychange 三处关页兜底里被调用 ——
+       也就是说：编辑过、但 900ms 防抖还没到、又没等到 20 秒兜底轮询就关页，
+       改动会被静默丢弃，且"未保存"指示器也不会亮（用户完全无从察觉）。
+       挂在这里后，所有编辑路径（含 commitEdit 的事务路径与 restoreSnapshot 的直调路径）
+       都会自动被覆盖，且不会误报（cur===pre 时已提前 return）。 */
+    markDirtyUI();
   }catch(e){}
   refreshUndoUI();
 }

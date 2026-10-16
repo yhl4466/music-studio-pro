@@ -42,7 +42,15 @@ export function navigateWithTransition(url){
 }
 
 function goVisualizer(){
-  const json=serializeProject();
+  /* 必须包 try/catch：serializeProject() 直接做 proj.tracks.map(...)，
+     而 core/state.js 里 proj 的初值是 {}；bindVizLink() 在 boot() 中于
+     `await loadShareFromHash()` **之前**执行，所以存在一个真实窗口 ——
+     用 #p= 短链打开 index.html 时 fetchShortLink 最长 15s 超时，这期间界面已可交互、
+     时间线却是空的，用户此时点「菜单 → 可视化」就会抛未捕获 TypeError（顶部红条）。
+     同一场景在 io/share.js 的 buildShareHash 里已用可读错误处理过，这里补齐。 */
+  let json=null;
+  try{ json=serializeProject() }
+  catch(e){ toast('还打不开可视化：工程尚未载入完成，请稍候再试','err'); return false }
   const v=validateVizPayload(json);
   if(!v.ok){ toast('无法打开可视化：'+v.reason,'err'); return false }
   if(json.length>MAX_BYTES){ toast('工程过大（约 '+Math.round(json.length/1048576)+'MB），无法移交到可视化页','err'); return false }
@@ -64,7 +72,7 @@ export function bindVizLink(){
   try{ menu=document.getElementById('menu') }catch(e){}
   if(!menu){ console.warn('[vizlink] 未找到 #menu，跳过可视化入口挂载'); return false }
 
-  const btn=el('button','mi','<span class="ic">📊</span>可视化<small>新页面</small>');
+  const btn=el('button','mi','<span class="ic"></span>可视化<small>新页面</small>');
   btn.dataset.act='visualize';
   btn.title='在独立页面里播放并观察波形 / 频谱（会把当前工程复制到可视化页）';
   btn.addEventListener('click',e=>{ e.preventDefault(); goVisualizer() });
