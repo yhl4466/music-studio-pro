@@ -240,8 +240,20 @@ export async function renderProject(proj,onProgress,opts={}){
       const nom=s*dur;
       const t=nom+((s%2===1&&sw>0)?dur*sw*.5:0);
       fireStep(s,t,off,G.master,nom);                // dest 必须传 G.master，否则延迟 send 不生效
-      const row=(proj._ev&&proj._ev[s])?proj._ev[s]:null;
-      if(row){ for(let i=0;i<row.length;i++)notes+=row[i]?row[i].length:0 }
+      /* 统计已排程的音符数。
+         ⚠ 这里原来写的是 `proj._ev[s]`（s 是**步号**），但 `proj._ev` 是**按轨**索引的
+         （见 core/audio/engine.js 的 rebuildEvents：`proj._ev = proj.tracks.map(t => arr)`，
+         每轨一个 `arr[step] = [{row,midi,vel,len}]`）。
+         用步号去索引轨数组，取到的是"第 s 条轨的全部步数组"，
+         于是 `row[i]` 恒为 undefined、`notes` 永远是 0 —— 表现为完成提示与
+         `__vz.cover.last` 里的"音符数 / 音符总数"一直显示 0。
+         正确做法：对每个步号遍历所有轨，累加该步实际触发的音符条数。 */
+      if(proj._ev){
+        for(let ti=0;ti<proj._ev.length;ti++){
+          const es=proj._ev[ti]&&proj._ev[ti][s];
+          if(es)notes+=es.length;
+        }
+      }
       const tNow=now();
       const bySteps=((s+1)%STEPS_PER_YIELD===0)||s===Sched-1;
       const byTime=(tNow-lastYield)>=YIELD_MS;
