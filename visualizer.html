@@ -10,11 +10,9 @@
      本地起服务时那是 localhost，别人扫了/点了都打不开。自行部署请改这两行。 -->
 <link rel="canonical" href="https://yhl4466.github.io/music-studio-pro/visualizer.html">
 <meta name="mp-share-base" content="https://yhl4466.github.io/music-studio-pro/">
-<!-- 分享短链后端地址（可选）。**默认留空 = 短链功能自动禁用**，其余不受影响。
-     此前这里硬编码了作者的生产后端，会让任何 fork 的用户数据默认 POST 到作者那里；
-     现改为留空。要用短链，在「设置 → 短链后端」填自己的地址，或把本行改成自己的部署地址
-     （详见 index.html 里的完整说明与 server/README.md）。 -->
-<meta name="mp-api-base" content="">
+<!-- 分享短链后端地址。**短链功能依赖它，留空则整条链不可用**（创建与读取两个方向都读它）。
+     完整说明见 index.html 里的同名注释；若你 fork 了本项目，请换成自己的后端地址。 -->
+<meta name="mp-api-base" content="https://main.mp-share-87y.pages.dev">
 <title>音乐可视化 · 智能音乐工坊 PRO</title>
 <!-- 基础描述与分享预览。可视化页已不再是分享链接的目标页（见 js/io/siteUrl.js 的 SHARE_PAGE），
      但它仍可被单独访问/被搜索引擎收录，所以保留一份精简的 meta。 -->
