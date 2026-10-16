@@ -49,7 +49,11 @@ export function synthVoice(ctx,dest,time,o){
   const tEnd=Math.max(ta+.04,.1);
   const f1=Math.min(18000,cut*(1+1.2*V));
   const f2=Math.max(55,cut*(.35+.65*V));
-  if(!isFinite(f1)||!isFinite(f2)){console.error('AUTOTEST-NANFILT '+JSON.stringify({vel:o.vel,cut:o.cut,env:o.env,freq:o.freq,time}));}
+  /* 下面两行 setValueAtTime/exponentialRampToValueAtTime 已对非有限值做替换兜底
+     （isFinite(f1)?f1:400 等），所以这里不再额外 console.error。
+     原来这里有一句 `console.error('AUTOTEST-NANFILT '+JSON.stringify({...}))`，
+     是自测脚手架留下的残留：每次合成声部都要 JSON.stringify 一遍参数，
+     在密集工程里会持续刷控制台，而它并没有带来任何兜底能力（兜底在下一行）。 */
   filt.frequency.setValueAtTime(isFinite(f1)?f1:400,tNow);
   filt.frequency.exponentialRampToValueAtTime(isFinite(f2)?f2:300,tNow+tEnd);
   filt.Q.value=clamp(num(o.res,2),0,20);
@@ -101,7 +105,10 @@ export function synthVoice(ctx,dest,time,o){
       osc.type=o.osc||'sawtooth';
       const maxF=(ctx.sampleRate||44100)/2*.9;
       const fm=f*m;
-      if(!isFinite(fm)){console.error('AUTOTEST-NANFREQ '+JSON.stringify({freq:o.freq,engine:o.engine}))}
+      /* 兜底就在下一行（isFinite(fm)?Math.min(fm,maxF):440），所以不再额外打日志。
+         原来这里有一句 `console.error('AUTOTEST-NANFREQ '+JSON.stringify(...))`，
+         位于**每个振荡器的循环内**，属自测脚手架残留 —— 密集工程会持续刷控制台，
+         且没有带来任何兜底能力。见文件上方 NANFILT 处的同类说明。 */
       osc.frequency.value=isFinite(fm)?Math.min(fm,maxF):440;
       const og=ctx.createGain();
       if(o.engine==='organ'){og.gain.value=ORG_GAIN[pi]||.1}

@@ -61,21 +61,37 @@ export function writeSiteOverride(u){
  * 解析「对外站点基址」（以 / 结尾），用于拼分享链接与二维码。
  * @returns {{url:string,from:string,local:boolean}}
  *   from：'override'|'meta'|'canonical'|'location'|'fallback'
- *   local：解析结果是否仍是本机地址（true = 别人打不开，UI 应给出警告）
+ *   local：解析结果是否**仍是本机地址**（true = 别人打不开，UI 应给出警告）
+ *
+ * ⚠ 历史上 `local` 一直是硬编码 false（5 个分支全写 local:false），
+ *   与上面这行契约不符，且全仓无人读它 —— 结果调用点
+ *   （js/viz/main.js 的短链设置面板）只好自己把 localhost 判断重写了一遍：
+ *   `location.hostname==='localhost'||location.hostname==='127.0.0.1'`。
+ *   同一判断两处实现，正是漂移来源。现按契约真正计算该字段。
  */
 export function resolveSiteBase(){
+  const mk=(url,from)=>({url:ensureDir(url),from,local:isLocalUrl(url)});
   const ov=normalize(readSiteOverride());
-  if(ov)return {url:ensureDir(ov),from:'override',local:false};
+  if(ov)return mk(ov,'override');
   const mt=normalize(metaContent('mp-share-base'));
-  if(mt)return {url:ensureDir(mt),from:'meta',local:false};
+  if(mt)return mk(mt,'meta');
   const cn=normalize((()=>{try{return (document.querySelector('link[rel="canonical"]')||{}).href||''}catch(e){return ''}})());
-  if(cn)return {url:ensureDir(cn),from:'canonical',local:false};
+  if(cn)return mk(cn,'canonical');
   try{
     if(typeof location!=='undefined'&&location.origin&&!isLocalHost(location.hostname)){
       return {url:ensureDir(location.origin+location.pathname),from:'location',local:false};
     }
   }catch(e){}
   return {url:FALLBACK_SITE,from:'fallback',local:false};
+}
+/** 该地址是否指向本机（用于 local 字段）。
+    解析失败时保守地返回 false —— 与旧行为一致，不会因此多报警告。
+    注意必须同时认可回环字面量与 localhost 域名；端口不参与判断。 */
+function isLocalUrl(u){
+  try{
+    const host=new URL(String(u)).hostname;
+    return isLocalHost(host);
+  }catch(e){ return false }
 }
 function ensureDir(u){
   const s=String(u||'');

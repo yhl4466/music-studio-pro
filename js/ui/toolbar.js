@@ -2,7 +2,7 @@
    （顶栏控件/菜单/音轨按钮/拍号/帮助/快捷键；最上层 UI 模块，可 import 其余 ui 模块） */
 import { proj, setProj, actx, A, uiZoom, setUiZoom, uiTab, setUiTab, selTrack, stepsPerQuarter, stepsPerBeat, meterN, meterD, meterLabel, SPB, beatSteps, barSeconds, isStraightFourFour, aiMeterOK, fmtPos, stepDurNow, stepWidth, effStepWidth, ensurePatSizes, pruneTrackPrec, patRows, allocPat, rowMidi, newTrack, uid, blankProject, applyTrackPatSize, demoProject, MAX_BARS, ZOOM_MIN } from '../core/state.js';
 import { PREC_U_PER_STEP, KIT, ROLES, ENGINE_NAMES, ENGINE_DEF, ROLE_VOL, KEY_NAMES, SCALES, SCALE_NAMES, MEL_ROWS, noteNameOf, keyBaseMidi, midiOfRow, octRowsOf, trackRows, setAcc } from '../core/theory.js';
-import { $, $$, el, clamp, ri, rf, pick, chance, lerp, pad2, debounce, makeRng, toast, icon, UI, downloadBlob, exportProgressElEnsure, exportProgressStart, exportProgressSet, exportProgressStop, hooks } from '../core/util.js';
+import { $, el, clamp, ri, rf, pick, chance, lerp, pad2, debounce, makeRng, toast, icon, UI, downloadBlob, exportProgressElEnsure, exportProgressStart, exportProgressSet, exportProgressStop, hooks } from '../core/util.js';
 import { LS_KEY, LIB_KEY, libRead, libWrite, libMeta } from '../core/storage.js';
 import { eqState, applyEqUI, getTrackBus, numSafe, noiseBuf, makeIR, buildGraph, applyTrackVolBus, ensureAudio, setMasterVol, setGate } from '../audio/master.js';
 import { VOICE_LIMIT, PARTIALS, ORG_GAIN, synthVoice, clickVoice, auditionTrack } from '../audio/synth.js';
@@ -197,7 +197,8 @@ export function bindTopControls(){
   /* 「▤ 侧栏」= 浮动覆盖层开关（默认收起；展开 280ms/--ease-out、收起 200ms/--ease-in 在 CSS 里） */
   $('#sideToggle').addEventListener('click',()=>setSideOpen(!UI.side.classList.contains('open')));
   setSideOpen(readSideOpen(),false);          // 进页面按上次状态摆好（首次访问 = 收起；不重复写库）
-  $$('#sideTabs')?.forEach(()=>{});
+  /* 这里原本还有一句 `$$('#sideTabs')?.forEach(()=>{});` —— 空操作、无任何效果，
+     是某次改动留下的残骸（真正的接线在下一行：UI.sideTabs.forEach(...)），已删。 */
   UI.sideTabs.forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
   // 菜单
   UI.menuBtn.addEventListener('click',e=>{

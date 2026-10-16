@@ -960,9 +960,15 @@ function bindSiteUrlUI(){
     inp.value=readSiteOverride()||'';
     inp.placeholder=b.url;
     if(hintEl){
-      const local=(()=>{try{return location.hostname==='localhost'||location.hostname==='127.0.0.1'}catch(e){return false}})();
+      /* 这里原来自行重写了一遍 localhost 判断
+         （`location.hostname==='localhost'||location.hostname==='127.0.0.1'`）——
+         因为 resolveSiteBase() 的 local 字段当时是硬编码 false、契约形同虚设。
+         现在 siteUrl.js 已按契约真正计算 local，这里直接用它，消除两处重复实现。
+         语义也略有区别（这正是应该集中判断的原因）：b.local 判的是"**生效的对外地址**
+         是否指向本机"，而旧代码判的是"**当前页面**是否在本机访问" ——
+         后者在本机访问但已显式配置了对外地址时也会警告，属于误报。 */
       hintEl.textContent='当前生效：'+b.url+'（'+siteSourceLabel(b.from)+'）'
-        +(local?'　⚠ 你在本机访问，已自动改用对外地址':'');
+        +(b.local?'　⚠ 该地址只在本机可用，别人打不开，请填对外地址':'');
     }
   };
   paint();

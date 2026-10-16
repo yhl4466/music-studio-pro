@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- 社交分享预览图（og:image / twitter:image）。
+       为什么用 SVG：本项目不引入构建工具与二进制资源，SVG 是纯文本、可版本管理、体积小。
+       ⚠ 注意：微信/部分平台对 SVG 的 og:image 支持不稳定，可能不显示预览图（标题与描述不受影响）。
+       若要最大兼容性，把它导出成同尺寸 PNG 覆盖此文件（assets/og-image.png）并改两处 meta 即可。 -->
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c6cff"/>
+      <stop offset="0.45" stop-color="#3aa0ff"/>
+      <stop offset="1" stop-color="#22ffd6"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#14151c"/>
+      <stop offset="1" stop-color="#0d0e13"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7c6cff" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#3aa0ff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#22ffd6" stop-opacity="0.5"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1200" height="6" fill="url(#brand)"/>
+
+  <!-- 左侧：应用图标（与 favicon 同一图形） -->
+  <g transform="translate(88,196) scale(4.2)">
+    <rect x="0" y="0" width="32" height="32" rx="8" fill="url(#brand)"/>
+    <ellipse cx="12.4" cy="22.2" rx="5" ry="3.9" fill="#ffffff" transform="rotate(-18 12.4 22.2)"/>
+    <rect x="15.7" y="6.6" width="2.6" height="15.6" rx="1.3" fill="#ffffff"/>
+    <path d="M18.3 6.6c3.9.6 6.3 2.5 6.9 5.7-1.7-2.1-3.8-3-6.9-3.3z" fill="#ffffff"/>
+  </g>
+
+  <!-- 右侧：标题与说明 -->
+  <text x="272" y="266" fill="#f2f4f8" font-family="'Segoe UI','Microsoft YaHei',system-ui,sans-serif"
+        font-size="76" font-weight="700" letter-spacing="1">智能音乐工坊 PRO</text>
+  <text x="274" y="326" fill="#9aa4b8" font-family="'Segoe UI','Microsoft YaHei',system-ui,sans-serif"
+        font-size="30" letter-spacing="4">AI 作曲 · 编曲 · 可视化</text>
+
+  <!-- 底部：特性标签 -->
+  <g font-family="'Segoe UI','Microsoft YaHei',system-ui,sans-serif" font-size="24" fill="#c8d0e0">
+    <rect x="274" y="376" width="212" height="52" rx="26" fill="#ffffff" fill-opacity="0.06"/>
+    <text x="302" y="410">纯浏览器运行</text>
+    <rect x="502" y="376" width="150" height="52" rx="26" fill="#ffffff" fill-opacity="0.06"/>
+    <text x="530" y="410">无需注册</text>
+    <rect x="668" y="376" width="238" height="52" rx="26" fill="#ffffff" fill-opacity="0.06"/>
+    <text x="696" y="410">钢琴卷帘编辑器</text>
+    <rect x="922" y="376" width="190" height="52" rx="26" fill="#ffffff" fill-opacity="0.06"/>
+    <text x="950" y="410">音乐可视化</text>
+  </g>
+
+  <!-- 装饰：底部波形（呼应"工坊"主题，纯装饰） -->
+  <g opacity="0.5">
+    <rect x="88"  y="520" width="10" height="46"  rx="5" fill="url(#fade)"/>
+    <rect x="110" y="500" width="10" height="86"  rx="5" fill="url(#fade)"/>
+    <rect x="132" y="532" width="10" height="34"  rx="5" fill="url(#fade)"/>
+    <rect x="154" y="486" width="10" height="114" rx="5" fill="url(#fade)"/>
+    <rect x="176" y="514" width="10" height="58"  rx="5" fill="url(#fade)"/>
+    <rect x="198" y="540" width="10" height="26"  rx="5" fill="url(#fade)"/>
+    <rect x="220" y="496" width="10" height="94"  rx="5" fill="url(#fade)"/>
+    <rect x="242" y="524" width="10" height="46"  rx="5" fill="url(#fade)"/>
+  </g>
+  <text x="1112" y="560" fill="#6b7488" text-anchor="end"
+        font-family="'Segoe UI','Microsoft YaHei',system-ui,sans-serif" font-size="22">yhl4466.github.io/music-studio-pro</text>
+</svg>

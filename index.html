@@ -13,6 +13,27 @@
 <!-- 分享短链后端地址（Cloudflare Worker，见 server/）。留空则短链功能自动禁用，其余不受影响。 -->
 <meta name="mp-api-base" content="https://main.mp-share-87y.pages.dev">
 <title>智能音乐工坊 PRO · AI 作曲工作室</title>
+<!-- 社交分享预览（发到 B 站/微信/QQ/论坛时显示标题、描述与预览图）。
+     此前完全没有这类 meta，链接被分享出去只显示一条裸 URL。
+     ⚠ og:image 用的是 SVG：体积小、可版本管理（本项目不引入二进制资源），
+       但微信等平台对 SVG 支持不稳定、可能不显示图（标题与描述不受影响）。
+       要最大兼容性：把 assets/og-image.svg 导出为同尺寸(1200×630) PNG，
+       存成 assets/og-image.png 并把下面两处 image 的 .svg 改成 .png。
+     ⚠ url 与 image 都必须是**绝对地址**（社交平台不解析相对路径）。 -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="智能音乐工坊 PRO">
+<meta property="og:title" content="智能音乐工坊 PRO · AI 作曲工作室">
+<meta property="og:description" content="在浏览器里作曲、编曲与音乐可视化。钢琴卷帘编辑器、实时 Web Audio 合成、离线导出 WAV，纯前端运行、无需注册。">
+<meta property="og:url" content="https://yhl4466.github.io/music-studio-pro/">
+<meta property="og:image" content="https://yhl4466.github.io/music-studio-pro/assets/og-image.svg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="智能音乐工坊 PRO · AI 作曲工作室">
+<meta name="twitter:description" content="在浏览器里作曲、编曲与音乐可视化。纯前端运行、无需注册。">
+<meta name="twitter:image" content="https://yhl4466.github.io/music-studio-pro/assets/og-image.svg">
+<meta name="description" content="在浏览器里作曲、编曲与音乐可视化。钢琴卷帘编辑器、实时 Web Audio 合成、离线导出 WAV，纯前端运行、无需注册。">
 <link rel="stylesheet" href="./css/theme.css">
 <link rel="stylesheet" href="./css/layout.css">
 <link rel="stylesheet" href="./css/timeline.css">
@@ -243,7 +264,6 @@
 </div>
 
 <div id="toasts"></div>
-<input type="file" id="wavFileIn" style="display:none">
 
 </body>
 </html>

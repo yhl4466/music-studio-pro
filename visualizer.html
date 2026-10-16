@@ -13,6 +13,14 @@
 <!-- 分享短链后端地址（Cloudflare Worker，见 server/）。留空则短链功能自动禁用，其余不受影响。 -->
 <meta name="mp-api-base" content="https://main.mp-share-87y.pages.dev">
 <title>音乐可视化 · 智能音乐工坊 PRO</title>
+<!-- 基础描述与分享预览。可视化页已不再是分享链接的目标页（见 js/io/siteUrl.js 的 SHARE_PAGE），
+     但它仍可被单独访问/被搜索引擎收录，所以保留一份精简的 meta。 -->
+<meta name="description" content="智能音乐工坊 PRO 的音乐可视化：波形、频谱、粒子等渲染器，可离线渲染并导出封面与分享卡片。">
+<meta name="robots" content="noindex">
+<meta property="og:title" content="音乐可视化 · 智能音乐工坊 PRO">
+<meta property="og:description" content="波形、频谱、粒子等音乐可视化渲染器，可导出封面与分享卡片。">
+<meta property="og:image" content="https://yhl4466.github.io/music-studio-pro/assets/og-image.svg">
+<meta property="og:locale" content="zh_CN">
 <link rel="stylesheet" href="./css/theme.css">
 <link rel="stylesheet" href="./css/viz.css">
 <link rel="icon" href="./assets/favicon.svg">

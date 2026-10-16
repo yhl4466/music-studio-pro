@@ -44,10 +44,15 @@ function _applyTheme(name){
 /* =========================================================================
    主题模式：dark(studio) / light(cream) / system(跟随系统) / legacy(旧值原样生效)
    ========================================================================= */
+/* 主题模式表。
+   ⚠ 不要在这里加 icon 字段：按钮图形由 css/layout.css 的
+   `.themeMi[data-mode="dark"] .ic{mask-image:var(--ic-moon)}` 等规则提供，
+   而 `.mi .ic{font-size:0}` 会把文字/emoji 隐藏掉 —— 也就是说 icon 字段即使写了也渲染不出来。
+   （这里原本写着 icon:'🌙'/'☀️'/'⚙'，是旧图标方案留下的死数据，已删。） */
 const MODES=[
-  {key:'dark',   theme:'studio', icon:'🌙', label:'深色',     dot:'studio'},
-  {key:'light',  theme:'cream',  icon:'☀️', label:'浅色',     dot:'cream'},
-  {key:'system', theme:'system', icon:'⚙',  label:'跟随系统', dot:''}
+  {key:'dark',   theme:'studio', label:'深色',     dot:'studio'},
+  {key:'light',  theme:'cream',  label:'浅色',     dot:'cream'},
+  {key:'system', theme:'system', label:'跟随系统', dot:''}
 ];
 const LEGACY=['midnight','cyber','sunrise','forest'];   // 旧值：CSS 保留、原样生效、不在 UI 露出
 let mode='dark';
@@ -91,7 +96,9 @@ export function bindTheme(){
   if(!wrap||!btn)return;
   const panel=el('div','menu themePanel','');
   MODES.forEach((m)=>{
-    const b=el('button','mi themeMi','<i class="tdot" data-k="'+m.dot+'"></i><i class="ic">'+m.icon+'</i><span>'+m.label+'</span>');
+    /* .ic 里不再塞 icon 字符（见 MODES 上方的说明）：图形由 CSS mask 按 data-mode 提供。
+       留空 <i class="ic"> 是必要的 —— mask 规则作用在它上面才画出图形。 */
+    const b=el('button','mi themeMi','<i class="tdot" data-k="'+m.dot+'"></i><i class="ic"></i><span>'+m.label+'</span>');
     b.dataset.mode=m.key;
     b.dataset.theme=m.theme;
     b.title=(m.key==='system')?'跟随系统的深色/浅色设置（系统切换时网页自动跟随）'
