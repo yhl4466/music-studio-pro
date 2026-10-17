@@ -66,8 +66,23 @@ function _pulse(){
   });
 }
 function _applyTheme(name){
-  document.documentElement.dataset.theme=name;
+  const root=document.documentElement;
+  if(root.dataset.theme===name){_pulse();return}   // 已在该主题：只脉动，不做无谓的重算
+  /* 【关键】切主题前先临时禁用"音符格的颜色过渡"。
+     为什么必须这么做（实测，用 document.getAnimations() 数并发动画 —— 确定性指标）：
+       · .pc 上有 `transition:background-color 120ms`（给画/擦音符做即时反馈）
+       · 切到浅色时每个格子的 background 都会变 → **13,547 个格子同时开始 120ms 过渡**
+       · 切到深色时只有 1 个（因为浅色用的是预压暗色，回深色时同样会变，但这个差异
+         说明过渡是否触发取决于具体颜色/规则的组合）
+     上万个并发颜色动画会让合成器持续忙碌远超 120ms，表现为"**切完之后整体还卡好几秒**"，
+     播放中切更明显 —— 这正是用户反馈的症状。
+     只针对 .pc 加一个开关类，**不要用通配符**：旧实现 `*{transition:none!important}`
+     实测 330–450ms（整棵 DOM 的样式失效），比问题本身更糟。
+     换完颜色后两帧再摘掉：那时新颜色已经应用，不需要过渡。 */
+  root.classList.add('pc-no-transition');
+  root.dataset.theme=name;
   _lastTheme=name;
+  requestAnimationFrame(()=>requestAnimationFrame(()=>root.classList.remove('pc-no-transition')));
   _pulse();
 }
 

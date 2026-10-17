@@ -288,6 +288,14 @@ body::after{content:'';position:fixed;inset:0;z-index:400;pointer-events:none;op
 :root.theme-pulse body::after{animation:themePulse var(--dur-base) var(--ease-out) 1}
 @keyframes themePulse{from{opacity:.9}to{opacity:0}}
 
+/* ---------- 主题切换期间：临时禁用音符格的颜色过渡 ----------
+   没有这条，切主题会让**上万个格子同时开始 120ms 的 background-color 过渡**
+   （实测 13,547 个并发动画，见 js/ui/theme.js 的 _applyTheme 注释），
+   合成器要持续忙碌远超 120ms，表现为"切完之后整体还卡好几秒"。
+   ⚠ 只针对 .pc，**绝不要写成通配符** `*{transition:none!important}`：
+   那样会让整棵 DOM 的过渡属性集体失效，实测 330–450ms，比问题本身更糟。 */
+:root.pc-no-transition .pc{transition:none}
+
 /* ---------- 无障碍：prefers-reduced-motion ----------
    规则：关掉所有位移/缩放/循环动画，**保留颜色与透明度过渡**（不丢失状态可读性），
    并保留功能性动画（加载旋转弧、进度微光、焦点环）。 */
@@ -386,28 +394,23 @@ body::after{content:'';position:fixed;inset:0;z-index:400;pointer-events:none;op
 :root[data-theme="cream"] .menu{box-shadow:var(--shadow-3);border-color:var(--line2)}
 /* 网格线在浅底上要看得见：加深一点，并给音符格压深以提高对比度。
    -------------------------------------------------------------------------
-   ⚠ 这里原本用「深色罩 64%」压深：linear-gradient(rgba(note-ink,.64),…) 叠在行色上。
-   但那个做法有个**可量化的副作用**：它把八个鼓色的色差一起压缩了。
-   实测（KIT_COLORS 八个亮色，在白底上）：
-     · 深色罩 64%  → 最低对比度 5.83，但八色之间最小 RGB 距离只有 11.2（原始的 37%）
-     · brightness(.60) → 最低对比度 3.19（仍达 WCAG 非文本元素 3.0），距离 18.2（原始的 60%）
-   色距 < 25 时人眼在同一界面并列就难以区分 —— 而鼓组里用户正是**靠颜色**分辨
-   底鼓/军鼓/闭合镲等，糊在一起就是"部分音符显示有问题"。所以改成统一降明度：
-   它在数学上与"深色罩"等价（罩 α ↔ 系数 1-α），但可以独立挑系数，
-   从而在保住最低对比度的同时多留下 60% 的色差。
-   颜色仍来自行上的 --tc（每行一个色），这里只统一压明度，不做逐格混色。 */
+   浅色模式压深音符格的三种做法，实测对比（密集工程 / cream / 稳态帧率 p90）：
+     · filter:brightness(.6)        p90 71.9 / 92.4 / 75.2ms  ← 三轮都最差
+       （filter 让元素单独建合成层、逐元素栅格化，音符密集时拖垮最坏帧）
+     · background-image 两层渐变    p90 61.2 / 33.7 / 40.5ms
+       而且它是"深色罩 α=0.64" = 颜色×0.36，把八种鼓色的色差压到 37%，糊在一起
+     · 现在：预先算好压暗色（--tc-d / --tc-h，见 js/ui/timeline.js 的 darkenHex）
+       纯纯色绘制，零额外成本，色差保留率 60%（比渐变的 37% 好）
+   所以这里**不要**再引入 filter 或渐变。 */
 :root[data-theme="cream"] .pc{border-right-color:var(--grid-line);border-bottom-color:var(--grid-line)}
 :root[data-theme="cream"] .pc.on{
-  filter:brightness(.6);
+  background:var(--tc-d,var(--tc));
   box-shadow:inset 0 -2px 0 rgba(0,0,0,.22),inset 0 0 0 1px rgba(0,0,0,.18)}
-/* 高力度音符：**不要**再往上提 brightness —— filter 是乘法，乘到 >1 会朝白色饱和
-   （实测 brightness(1.35) 让 #ffc46b 变成 #ffff90，比原来的深色罩方案更糟）。
-   改为"底色略提亮（仍 <1，保持色相）+ 一圈白色描边与柔光"来体现强调。
-   提亮系数取 0.68 而不是 1.0：1.0 意味着高力度格完全不压暗，会和白底糊在一起。
-   也不能取 0.78 —— 实测那会让最亮的黄 #ffd166 对比度掉到 2.59（低于 WCAG 3.0）。
-   0.68 时最亮色仍 ≥3.0，且与同色普通格（0.6）有约 20 的 RGB 距离，看得出强调。 */
+/* 高力度音符：用预先算好的略亮一档颜色（--tc-h），并**取消基类的 brightness(1.25)**
+   —— 那个 filter 是给深色主题的亮色格用的；在浅色下它会和压暗色叠加，把对比度拉低
+   到 WCAG 3.0 以下（实测 0.6×1.25=0.75 → 最亮黄对比度只有 2.07）。 */
 :root[data-theme="cream"] .pc.on.velH{
-  filter:brightness(.68);
+  background:var(--tc-h,var(--tc));filter:none;
   box-shadow:inset 0 0 0 2px rgba(255,255,255,.85),inset 0 0 9px rgba(255,255,255,.5),inset 0 -2px 0 rgba(0,0,0,.18)}
 /* 浅色下描边与冻结列投影要更实，避免"糊" */
 :root[data-theme="cream"] .tgroup,

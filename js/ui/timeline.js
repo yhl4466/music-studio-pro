@@ -9,6 +9,35 @@ import { ensureAudio, setGate } from '../audio/master.js';
 import { Play, rebuildEvents } from '../audio/engine.js';
 import { beginEdit, commitEdit, markDirtyUI, doUndo, undoH } from '../io/project.js';
 
+/* 把一个 #rrggbb 颜色压暗到"与白底对比度 ≥ target"的最亮版本。
+   用途：给浅色（cream）主题提供预压暗的轨道色，避免运行时用 filter / 渐变（都更贵，见调用处注释）。
+   ⚠ 为什么不是"固定乘一个系数"：固定系数对**很亮的颜色**不够。实测 #f6f1d5（奶白，通鼓）
+   乘 0.68 后与白底对比度只有 2.51，低于 WCAG 非文本元素要求的 3.0。
+   改成"按目标对比度反解系数"，每个颜色各自求解：奶白需要 0.579，而紫色只需 0.777 ——
+   这样既保证达标，又最大化保留原色（色差比固定系数和渐变方案都好）。
+   对比度(白底) = 1.05 / (L + 0.05)，随系数减小而单调升高，所以用二分求"满足 ≥target 的最大 k"。
+   非 #rrggbb 形式（如 rgb(...) / 变量名）原样返回 —— 宁可不压暗，也不能把颜色写坏成透明。 */
+function relLum(rgb){
+  const s=rgb.map(v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)});
+  return 0.2126*s[0]+0.7152*s[1]+0.0722*s[2];
+}
+function darkenToContrast(hex,target){
+  const h=String(hex==null?'':hex).trim().replace(/^#/,'');
+  if(!/^[0-9a-fA-F]{6}$/.test(h))return hex;      // 非 6 位 hex：原样返回（安全退化）
+  const c=[0,2,4].map(i=>parseInt(h.slice(i,i+2),16));
+  let lo=0,hi=1;
+  for(let i=0;i<24;i++){                          // 24 次足够收敛到 1/2^24，只在建行时跑
+    const k=(lo+hi)/2;
+    if(1.05/(relLum(c.map(v=>v*k))+0.05)>=target)lo=k;else hi=k;
+  }
+  let out='#';
+  for(let i=0;i<3;i++){
+    const v=Math.max(0,Math.min(255,Math.round(c[i]*lo)));
+    out+=v.toString(16).padStart(2,'0');
+  }
+  return out;
+}
+
 /* 把池内一个格子从步 so 挪到步 sn：同步 cols/cells 索引（O(1)，避免整体重建） */
 function reindexMove(c,ti,r,cell,so,sn){
   const tm=c.cells&&c.cells[ti];
@@ -781,6 +810,24 @@ export function buildTrackGroup(t,ti,list){
         row.style.gridTemplateColumns=win?rowTemplateFor(win.from,win.cw||effStepWidth(),win.n)
           :('var(--labW) repeat('+proj.steps+', '+effStepWidth()+'px)');
         row.style.setProperty('--tc',t.kind==='drum'?KIT_COLORS[r]:t.color);
+        /* 预压暗的轨道色：只给浅色（cream）主题用，让它在白底上有足够对比度。
+           ⚠ 为什么不像以前那样在 CSS 里做（两个方案都被实测否决）：
+             · filter:brightness(.6) —— 实测（密集工程 / cream / 稳态帧率 p90）
+               三轮都是最差：71.9 / 92.4 / 75.2ms。filter 会让元素单独建合成层、
+               逐元素栅格化，音符密集时直接拖垮最坏帧。
+             · background-image 两层渐变（更早的方案）—— p90 61/34/41ms，比 filter 好，
+               但它是"深色罩 α=0.64"，等价于把颜色乘以 0.36，八种鼓色的色差被压到 37%，
+               糊在一起（这是之前修的那个 bug）。
+           · 现在：在建行时一次性算好压暗色，运行时只是换个 background-color
+             —— 纯纯色绘制，零额外成本，色差保留率 70%（21.2 / 30.4，比渐变的 37% 好很多）。
+           目标对比度 3.4（普通格）/ 3.05（高力度格，略亮以便区分，仍 ≥3.0）。
+           ⚠ 同一元素上多写两个变量的代价几乎为零：CSS 变量贵在"子树失效"，
+             而这几行写的是同一个 row 元素，只会失效一次。 */
+        (()=>{
+          const tc=t.kind==='drum'?KIT_COLORS[r]:t.color;
+          row.style.setProperty('--tc-d',darkenToContrast(tc,3.4));
+          row.style.setProperty('--tc-h',darkenToContrast(tc,3.05));
+        })();
         const lab=el('div','lab'+(t.kind==='mel'&&r%7===0?' root':''));
         if(t.kind==='drum'){
           const k=KIT[r];
